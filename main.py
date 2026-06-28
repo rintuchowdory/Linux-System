@@ -8,7 +8,7 @@ import threading
 import time
 
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, GLib, Gdj
+from gi.repository import Gtk, GLib, Gdk
 
 try:
     from pynpup import keyboard
