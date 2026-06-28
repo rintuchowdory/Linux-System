@@ -8,6 +8,7 @@ import psutil
 import os
 import subprocess
 import time
+import gevent
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent', ping_timeout=60, ping_interval=25)
@@ -322,6 +323,10 @@ HTML = """
         
         socket.on('terminal_output', (data) => {
             const term = document.getElementById('terminal');
+            if (data.output === '__CLEAR__') {
+                term.innerHTML = '';
+                return;
+            }
             const line = document.createElement('div');
             line.className = 'terminal-line';
             if (data.error) line.className += ' terminal-error';
@@ -368,7 +373,6 @@ HTML = """
             return div.innerHTML;
         }
         
-        // Focus terminal input on load
         document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('terminal-input').focus();
         });
@@ -412,7 +416,6 @@ def handle_kill(pid):
 
 @socketio.on('terminal_command')
 def handle_terminal(cmd):
-    """Safe command execution for web terminal"""
     allowed = ['ls', 'pwd', 'whoami', 'uname', 'date', 'uptime', 'ps', 'df', 'free', 'echo', 'cat', 'head', 'tail', 'wc', 'help', 'clear']
     try:
         parts = cmd.strip().split()
@@ -439,7 +442,7 @@ def emit_stats():
     boot_time = psutil.boot_time()
     
     while True:
-        gevent.sleep(1)  # ✅ True gevent sleep, doesn't block event loop
+        gevent.sleep(1)
         try:
             net = psutil.net_io_counters()
             ram = psutil.virtual_memory()
@@ -464,7 +467,6 @@ def emit_stats():
             print(f"Stats error: {e}")
             gevent.sleep(1)
 
-# ✅ Use gevent.spawn for true background greenlet
 gevent.spawn(emit_stats)
 
 if __name__ == '__main__':
