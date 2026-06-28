@@ -3,13 +3,21 @@ import gevent.monkey
 gevent.monkey.patch_all()
 
 from flask import Flask, render_template_string
-from flask_socketio import SocketIO
+from flask_socketio import SocketIO, emit
 import psutil
-import threading
-import time
+import os
+import pty
+import select
+import subprocess
+import termios
+import struct
+import fcntl
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
+
+# Global state
+terminal_sessions = {}
 
 HTML = """
 <!DOCTYPE html>
@@ -17,95 +25,136 @@ HTML = """
 <head>
     <title>Linux-System Dashboard</title>
     <meta charset="utf-8">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            background: #1e1e2e;
+            background: #0f0f1a;
             color: #cdd6f4;
             font-family: 'Segoe UI', Ubuntu, sans-serif;
             min-height: 100vh;
+            overflow-x: hidden;
+        }
+        /* Animated wave background like your screenshot */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: 
+                radial-gradient(ellipse at 20% 50%, rgba(120, 40, 180, 0.4) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(255, 100, 50, 0.3) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 80%, rgba(40, 100, 255, 0.3) 0%, transparent 50%);
+            z-index: -1;
+            pointer-events: none;
         }
         .panel {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 15px 30px;
-            background: #181825;
-            border-bottom: 2px solid #313244;
+            padding: 12px 25px;
+            background: rgba(24, 24, 37, 0.85);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255,255,255,0.05);
             flex-wrap: wrap;
             gap: 10px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
         }
-        .icons { display: flex; gap: 15px; }
+        .icons { display: flex; gap: 12px; }
         .icon-btn {
-            width: 40px; height: 40px;
-            border-radius: 10px;
-            background: #313244;
-            border: none;
-            color: #cdd6f4;
-            font-size: 18px;
+            width: 42px; height: 42px;
+            border-radius: 12px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.08);
+            color: #fff;
+            font-size: 20px;
             cursor: pointer;
-            transition: 0.3s;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
-        .icon-btn:hover { background: #89b4fa; color: #1e1e2e; }
-        .stats { display: flex; gap: 25px; font-size: 14px; align-items: center; }
-        .stat { display: flex; align-items: center; gap: 8px; }
-        .stat-value { color: #89b4fa; font-weight: bold; }
+        .icon-btn:hover { 
+            background: rgba(137, 180, 250, 0.2); 
+            transform: translateY(-2px);
+            border-color: rgba(137, 180, 250, 0.4);
+        }
+        .stats { display: flex; gap: 20px; font-size: 13px; align-items: center; }
+        .stat { display: flex; align-items: center; gap: 6px; }
+        .stat-value { color: #89b4fa; font-weight: 600; }
         .actions { display: flex; gap: 10px; }
         .btn {
             padding: 8px 16px;
             border-radius: 8px;
             border: none;
-            background: #313244;
+            background: rgba(255,255,255,0.06);
             color: #cdd6f4;
             cursor: pointer;
             font-size: 13px;
             transition: 0.2s;
+            border: 1px solid rgba(255,255,255,0.08);
         }
-        .btn:hover { background: #89b4fa; color: #1e1e2e; }
-        .btn.record { background: #ff5555; color: white; }
+        .btn:hover { background: rgba(137, 180, 250, 0.2); }
+        .btn.record { background: rgba(255, 85, 85, 0.8); color: white; }
         .content {
-            padding: 30px;
+            padding: 25px;
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
             gap: 20px;
+            max-width: 1600px;
+            margin: 0 auto;
         }
         .card {
-            background: #181825;
-            border-radius: 12px;
+            background: rgba(24, 24, 37, 0.7);
+            backdrop-filter: blur(10px);
+            border-radius: 16px;
             padding: 20px;
-            border: 1px solid #313244;
+            border: 1px solid rgba(255,255,255,0.06);
+            transition: transform 0.3s;
         }
-        .card h3 { margin-bottom: 15px; color: #89b4fa; }
+        .card:hover { transform: translateY(-2px); }
+        .card h3 { margin-bottom: 15px; color: #89b4fa; font-size: 15px; }
         .progress-bar {
-            width: 100%; height: 20px;
-            background: #313244;
-            border-radius: 10px;
+            width: 100%; height: 22px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 11px;
             overflow: hidden;
             margin: 10px 0;
+            border: 1px solid rgba(255,255,255,0.05);
         }
         .progress-fill {
             height: 100%;
             background: linear-gradient(90deg, #89b4fa, #b4befe);
-            border-radius: 10px;
+            border-radius: 11px;
             transition: width 0.5s ease, background 0.3s ease;
+            box-shadow: 0 0 10px rgba(137,180,250,0.3);
         }
-        .progress-fill.warning { background: linear-gradient(90deg, #f9e2af, #fab387) !important; }
-        .progress-fill.danger { background: linear-gradient(90deg, #f38ba8, #ff5555) !important; }
-        .detail-text { font-size: 12px; color: #a6adc8; margin-top: 5px; }
+        .progress-fill.warning { 
+            background: linear-gradient(90deg, #f9e2af, #fab387) !important; 
+            box-shadow: 0 0 10px rgba(249,226,175,0.3);
+        }
+        .progress-fill.danger { 
+            background: linear-gradient(90deg, #f38ba8, #ff5555) !important; 
+            box-shadow: 0 0 10px rgba(243,139,168,0.3);
+        }
+        .detail-text { font-size: 12px; color: #a6adc8; margin-top: 8px; line-height: 1.6; }
         .process-list {
-            max-height: 400px;
+            max-height: 350px;
             overflow-y: auto;
         }
         .process-item {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 8px;
-            border-bottom: 1px solid #313244;
+            padding: 8px 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
             font-size: 13px;
+            transition: background 0.2s;
         }
+        .process-item:hover { background: rgba(255,255,255,0.03); }
         .kill-btn {
-            background: #ff5555;
+            background: rgba(255, 85, 85, 0.8);
             border: none;
             padding: 4px 12px;
             border-radius: 6px;
@@ -116,7 +165,22 @@ HTML = """
             transition: 0.2s;
         }
         .kill-btn:hover { opacity: 1; transform: scale(1.05); }
-        #conn-status { font-size: 12px; }
+        #conn-status { font-size: 12px; font-weight: 600; }
+        .terminal-card { grid-column: 1 / -1; }
+        .terminal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .terminal-window {
+            background: #0c0c14;
+            border-radius: 12px;
+            padding: 10px;
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        .xterm { padding: 10px; }
+        .xterm-viewport { border-radius: 8px; }
     </style>
 </head>
 <body>
@@ -166,17 +230,77 @@ HTML = """
             <h3>Top Processes</h3>
             <div class="process-list" id="process-list"></div>
         </div>
+        <div class="card terminal-card">
+            <div class="terminal-header">
+                <h3>💻 Bash Terminal</h3>
+                <span style="font-size:12px;color:#a6adc8">Connected via SocketIO</span>
+            </div>
+            <div class="terminal-window" id="terminal"></div>
+        </div>
     </div>
 
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
     <script>
         const socket = io();
+        let term, fitAddon;
         
-        // Update connection status
+        // Initialize terminal
+        function initTerminal() {
+            term = new Terminal({
+                theme: {
+                    background: '#0c0c14',
+                    foreground: '#cdd6f4',
+                    cursor: '#89b4fa',
+                    selectionBackground: 'rgba(137,180,250,0.3)',
+                    black: '#45475a',
+                    red: '#f38ba8',
+                    green: '#a6e3a1',
+                    yellow: '#f9e2af',
+                    blue: '#89b4fa',
+                    magenta: '#cba6f7',
+                    cyan: '#94e2d5',
+                    white: '#bac2de'
+                },
+                fontSize: 14,
+                fontFamily: 'JetBrains Mono, Consolas, monospace',
+                cursorBlink: true,
+                rows: 24
+            });
+            
+            fitAddon = new FitAddon.FitAddon();
+            term.loadAddon(fitAddon);
+            term.open(document.getElementById('terminal'));
+            fitAddon.fit();
+            
+            term.onData(data => {
+                socket.emit('terminal_input', data);
+            });
+            
+            socket.on('terminal_output', (data) => {
+                term.write(data);
+            });
+            
+            socket.on('terminal_ready', () => {
+                term.writeln('\\r\\n\\x1b[32m[Linux-System Terminal]\\x1b[0m Connected to bash.');
+                term.writeln('\\x1b[36mType commands below:\\x1b[0m\\r\\n');
+            });
+            
+            window.addEventListener('resize', () => {
+                fitAddon.fit();
+                socket.emit('terminal_resize', { cols: term.cols, rows: term.rows });
+            });
+            
+            socket.emit('terminal_resize', { cols: term.cols, rows: term.rows });
+        }
+        
+        // Connection status
         socket.on('connect', () => {
             const el = document.getElementById('conn-status');
             el.textContent = '● live';
             el.style.color = '#22c55e';
+            if (!term) initTerminal();
         });
         
         socket.on('disconnect', () => {
@@ -185,10 +309,10 @@ HTML = """
             el.style.color = '#ef4444';
         });
         
-        // Helper to set bar width + color
+        // Stats handling
         function setBar(id, value) {
             const el = document.getElementById(id);
-            el.style.width = value + '%';
+            el.style.width = Math.min(value, 100) + '%';
             el.classList.remove('warning', 'danger');
             if (value >= 90) el.classList.add('danger');
             else if (value >= 70) el.classList.add('warning');
@@ -222,7 +346,7 @@ HTML = """
                 list.innerHTML = data.map(p => `
                     <div class="process-item">
                         <span>PID ${p.pid} | ${p.name} | CPU ${p.cpu}% | MEM ${p.mem}%</span>
-                        <button class="kill-btn" onclick="confirmKill(${p.pid}, '${p.name.replace(/'/g, "\\'")}')">Kill</button>
+                        <button class="kill-btn" onclick="confirmKill(${p.pid}, '${p.name.replace(/'/g, "\\\\'")}')">Kill</button>
                     </div>
                 `).join('');
             }
@@ -263,6 +387,7 @@ def index():
 @socketio.on('connect')
 def handle_connect():
     print('Client connected')
+    emit('terminal_ready')
 
 @socketio.on('get_processes')
 def handle_processes():
@@ -279,23 +404,84 @@ def handle_processes():
         except:
             pass
     processes.sort(key=lambda x: x['cpu'], reverse=True)
-    socketio.emit('processes', processes[:20])
+    emit('processes', processes[:20])
 
 @socketio.on('kill_process')
 def handle_kill(pid):
     try:
-        import os
         os.kill(int(pid), 15)
-        socketio.emit('notification', {'title': 'Killed', 'body': f'PID {pid} terminated'})
+        emit('notification', {'title': 'Killed', 'body': f'PID {pid} terminated'})
     except Exception as e:
-        socketio.emit('notification', {'title': 'Error', 'body': str(e)})
+        emit('notification', {'title': 'Error', 'body': str(e)})
 
+# Terminal handling
+@socketio.on('terminal_input')
+def handle_terminal_input(data):
+    sid = request.sid if hasattr(request, 'sid') else None
+    if sid and sid in terminal_sessions:
+        fd = terminal_sessions[sid]['fd']
+        os.write(fd, data.encode())
+
+@socketio.on('terminal_resize')
+def handle_terminal_resize(data):
+    sid = request.sid if hasattr(request, 'sid') else None
+    if sid and sid in terminal_sessions:
+        set_terminal_size(terminal_sessions[sid]['fd'], data['cols'], data['rows'])
+
+def set_terminal_size(fd, cols, rows):
+    try:
+        size = struct.pack('HHHH', rows, cols, 0, 0)
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, size)
+    except:
+        pass
+
+def read_terminal_output(sid):
+    if sid not in terminal_sessions:
+        return
+    fd = terminal_sessions[sid]['fd']
+    while True:
+        socketio.sleep(0.01)
+        try:
+            ready, _, _ = select.select([fd], [], [], 0)
+            if ready:
+                output = os.read(fd, 1024).decode('utf-8', errors='replace')
+                socketio.emit('terminal_output', output, room=sid)
+        except (OSError, select.error):
+            break
+
+@socketio.on('connect')
+def start_terminal():
+    from flask import request
+    sid = request.sid
+    if sid not in terminal_sessions:
+        pid, fd = pty.fork()
+        if pid == 0:
+            # Child process
+            subprocess.run(['bash', '-i'])
+            os._exit(0)
+        else:
+            terminal_sessions[sid] = {'pid': pid, 'fd': fd}
+            socketio.start_background_task(read_terminal_output, sid)
+
+@socketio.on('disconnect')
+def stop_terminal():
+    from flask import request
+    sid = request.sid
+    if sid in terminal_sessions:
+        try:
+            os.kill(terminal_sessions[sid]['pid'], 9)
+            os.close(terminal_sessions[sid]['fd'])
+        except:
+            pass
+        del terminal_sessions[sid]
+
+# Stats emitter - THE CRITICAL FIX
 def emit_stats():
     last_net = psutil.net_io_counters()
     boot_time = psutil.boot_time()
     
     while True:
-        socketio.sleep(1)  # ✅ Gevent-compatible non-blocking sleep
+        socketio.sleep(1)  # ✅ Non-blocking gevent sleep
         net = psutil.net_io_counters()
         ram = psutil.virtual_memory()
         disk = psutil.disk_usage('/')
@@ -316,9 +502,9 @@ def emit_stats():
         })
         last_net = net
 
-# ✅ CRITICAL FIX: Start background thread HERE, not inside if __name__
-# Gunicorn imports this module, so __main__ never runs
-threading.Thread(target=emit_stats, daemon=True).start()
+# ✅ CRITICAL FIX: Start as SocketIO background task, not raw thread
+# This runs properly under gevent/gunicorn
+socketio.start_background_task(emit_stats)
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
