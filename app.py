@@ -278,8 +278,8 @@ HTML = """
             const el = document.getElementById(id);
             el.style.width = Math.min(value, 100) + '%';
             el.classList.remove('warning', 'danger');
-            if (value >= 90) el.classList.add('danger');
-            else if (value >= 70) el.classList.add('warning');
+            if (value >= 85) el.classList.add('danger');
+            else if (value >= 60) el.classList.add('warning');
         }
         
         socket.on('stats', (data) => {
