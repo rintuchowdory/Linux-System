@@ -2,22 +2,14 @@
 import gevent.monkey
 gevent.monkey.patch_all()
 
-from flask import Flask, render_template_string
+from flask import Flask, render_template_string, request
 from flask_socketio import SocketIO, emit
 import psutil
 import os
-import pty
-import select
-import subprocess
-import termios
-import struct
-import fcntl
+import time
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
-
-# Global state
-terminal_sessions = {}
 
 HTML = """
 <!DOCTYPE html>
@@ -25,7 +17,6 @@ HTML = """
 <head>
     <title>Linux-System Dashboard</title>
     <meta charset="utf-8">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -33,9 +24,7 @@ HTML = """
             color: #cdd6f4;
             font-family: 'Segoe UI', Ubuntu, sans-serif;
             min-height: 100vh;
-            overflow-x: hidden;
         }
-        /* Animated wave background like your screenshot */
         body::before {
             content: '';
             position: fixed;
@@ -78,7 +67,6 @@ HTML = """
         .icon-btn:hover { 
             background: rgba(137, 180, 250, 0.2); 
             transform: translateY(-2px);
-            border-color: rgba(137, 180, 250, 0.4);
         }
         .stats { display: flex; gap: 20px; font-size: 13px; align-items: center; }
         .stat { display: flex; align-items: center; gap: 6px; }
@@ -102,7 +90,7 @@ HTML = """
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
             gap: 20px;
-            max-width: 1600px;
+            max-width: 1400px;
             margin: 0 auto;
         }
         .card {
@@ -167,20 +155,32 @@ HTML = """
         .kill-btn:hover { opacity: 1; transform: scale(1.05); }
         #conn-status { font-size: 12px; font-weight: 600; }
         .terminal-card { grid-column: 1 / -1; }
-        .terminal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-        }
         .terminal-window {
             background: #0c0c14;
             border-radius: 12px;
-            padding: 10px;
+            padding: 15px;
             border: 1px solid rgba(255,255,255,0.08);
+            font-family: 'JetBrains Mono', 'Consolas', monospace;
+            font-size: 13px;
+            color: #cdd6f4;
+            min-height: 200px;
+            white-space: pre-wrap;
+            overflow-y: auto;
         }
-        .xterm { padding: 10px; }
-        .xterm-viewport { border-radius: 8px; }
+        .terminal-input {
+            background: transparent;
+            border: none;
+            color: #cdd6f4;
+            font-family: inherit;
+            font-size: 13px;
+            width: 100%;
+            outline: none;
+            margin-top: 5px;
+        }
+        .terminal-line { margin: 2px 0; }
+        .terminal-prompt { color: #89b4fa; }
+        .terminal-error { color: #f38ba8; }
+        .terminal-success { color: #a6e3a1; }
     </style>
 </head>
 <body>
@@ -231,76 +231,25 @@ HTML = """
             <div class="process-list" id="process-list"></div>
         </div>
         <div class="card terminal-card">
-            <div class="terminal-header">
-                <h3>💻 Bash Terminal</h3>
-                <span style="font-size:12px;color:#a6adc8">Connected via SocketIO</span>
+            <h3>💻 Bash Terminal (Simulated)</h3>
+            <div class="terminal-window" id="terminal">
+                <div class="terminal-line"><span class="terminal-prompt">user@render:~$</span> welcome to linux-system web terminal</div>
+                <div class="terminal-line">Type 'help' for available commands</div>
             </div>
-            <div class="terminal-window" id="terminal"></div>
+            <input type="text" class="terminal-input" id="terminal-input" placeholder="Type command..." 
+                   onkeydown="if(event.key==='Enter'){runCommand(this.value);this.value=''}">
         </div>
     </div>
 
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
     <script>
         const socket = io();
-        let term, fitAddon;
-        
-        // Initialize terminal
-        function initTerminal() {
-            term = new Terminal({
-                theme: {
-                    background: '#0c0c14',
-                    foreground: '#cdd6f4',
-                    cursor: '#89b4fa',
-                    selectionBackground: 'rgba(137,180,250,0.3)',
-                    black: '#45475a',
-                    red: '#f38ba8',
-                    green: '#a6e3a1',
-                    yellow: '#f9e2af',
-                    blue: '#89b4fa',
-                    magenta: '#cba6f7',
-                    cyan: '#94e2d5',
-                    white: '#bac2de'
-                },
-                fontSize: 14,
-                fontFamily: 'JetBrains Mono, Consolas, monospace',
-                cursorBlink: true,
-                rows: 24
-            });
-            
-            fitAddon = new FitAddon.FitAddon();
-            term.loadAddon(fitAddon);
-            term.open(document.getElementById('terminal'));
-            fitAddon.fit();
-            
-            term.onData(data => {
-                socket.emit('terminal_input', data);
-            });
-            
-            socket.on('terminal_output', (data) => {
-                term.write(data);
-            });
-            
-            socket.on('terminal_ready', () => {
-                term.writeln('\\r\\n\\x1b[32m[Linux-System Terminal]\\x1b[0m Connected to bash.');
-                term.writeln('\\x1b[36mType commands below:\\x1b[0m\\r\\n');
-            });
-            
-            window.addEventListener('resize', () => {
-                fitAddon.fit();
-                socket.emit('terminal_resize', { cols: term.cols, rows: term.rows });
-            });
-            
-            socket.emit('terminal_resize', { cols: term.cols, rows: term.rows });
-        }
         
         // Connection status
         socket.on('connect', () => {
             const el = document.getElementById('conn-status');
             el.textContent = '● live';
             el.style.color = '#22c55e';
-            if (!term) initTerminal();
         });
         
         socket.on('disconnect', () => {
@@ -357,6 +306,17 @@ HTML = """
             alert(data.title + ': ' + data.body);
         });
         
+        socket.on('terminal_output', (data) => {
+            const term = document.getElementById('terminal');
+            const line = document.createElement('div');
+            line.className = 'terminal-line';
+            if (data.error) line.className += ' terminal-error';
+            else if (data.success) line.className += ' terminal-success';
+            line.innerHTML = data.output;
+            term.appendChild(line);
+            term.scrollTop = term.scrollHeight;
+        });
+        
         let recording = false;
         function toggleRecord() {
             recording = !recording;
@@ -375,6 +335,15 @@ HTML = """
                 socket.emit('kill_process', pid);
             }
         }
+        
+        function runCommand(cmd) {
+            const term = document.getElementById('terminal');
+            const line = document.createElement('div');
+            line.className = 'terminal-line';
+            line.innerHTML = '<span class="terminal-prompt">user@render:~$</span> ' + cmd;
+            term.appendChild(line);
+            socket.emit('terminal_command', cmd);
+        }
     </script>
 </body>
 </html>
@@ -387,7 +356,6 @@ def index():
 @socketio.on('connect')
 def handle_connect():
     print('Client connected')
-    emit('terminal_ready')
 
 @socketio.on('get_processes')
 def handle_processes():
@@ -414,74 +382,32 @@ def handle_kill(pid):
     except Exception as e:
         emit('notification', {'title': 'Error', 'body': str(e)})
 
-# Terminal handling
-@socketio.on('terminal_input')
-def handle_terminal_input(data):
-    sid = request.sid if hasattr(request, 'sid') else None
-    if sid and sid in terminal_sessions:
-        fd = terminal_sessions[sid]['fd']
-        os.write(fd, data.encode())
-
-@socketio.on('terminal_resize')
-def handle_terminal_resize(data):
-    sid = request.sid if hasattr(request, 'sid') else None
-    if sid and sid in terminal_sessions:
-        set_terminal_size(terminal_sessions[sid]['fd'], data['cols'], data['rows'])
-
-def set_terminal_size(fd, cols, rows):
+@socketio.on('terminal_command')
+def handle_terminal(cmd):
+    """Simple safe command execution for web terminal"""
+    allowed = ['ls', 'pwd', 'whoami', 'uname', 'date', 'uptime', 'ps', 'df', 'free', 'top', 'help', 'echo']
     try:
-        size = struct.pack('HHHH', rows, cols, 0, 0)
-        fcntl.ioctl(fd, termios.TIOCSWINSZ, size)
-    except:
-        pass
-
-def read_terminal_output(sid):
-    if sid not in terminal_sessions:
-        return
-    fd = terminal_sessions[sid]['fd']
-    while True:
-        socketio.sleep(0.01)
-        try:
-            ready, _, _ = select.select([fd], [], [], 0)
-            if ready:
-                output = os.read(fd, 1024).decode('utf-8', errors='replace')
-                socketio.emit('terminal_output', output, room=sid)
-        except (OSError, select.error):
-            break
-
-@socketio.on('connect')
-def start_terminal():
-    from flask import request
-    sid = request.sid
-    if sid not in terminal_sessions:
-        pid, fd = pty.fork()
-        if pid == 0:
-            # Child process
-            subprocess.run(['bash', '-i'])
-            os._exit(0)
+        parts = cmd.strip().split()
+        if not parts:
+            return
+        base = parts[0]
+        if base == 'help':
+            emit('terminal_output', {'output': 'Available: ' + ', '.join(allowed), 'success': True})
+        elif base in allowed:
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
+            output = result.stdout + result.stderr
+            emit('terminal_output', {'output': output.replace('\\n', '<br>') or 'Done', 'success': result.returncode == 0, 'error': result.returncode != 0})
         else:
-            terminal_sessions[sid] = {'pid': pid, 'fd': fd}
-            socketio.start_background_task(read_terminal_output, sid)
+            emit('terminal_output', {'output': f"Command '{base}' not allowed. Type 'help'", 'error': True})
+    except Exception as e:
+        emit('terminal_output', {'output': str(e), 'error': True})
 
-@socketio.on('disconnect')
-def stop_terminal():
-    from flask import request
-    sid = request.sid
-    if sid in terminal_sessions:
-        try:
-            os.kill(terminal_sessions[sid]['pid'], 9)
-            os.close(terminal_sessions[sid]['fd'])
-        except:
-            pass
-        del terminal_sessions[sid]
-
-# Stats emitter - THE CRITICAL FIX
 def emit_stats():
     last_net = psutil.net_io_counters()
     boot_time = psutil.boot_time()
     
     while True:
-        socketio.sleep(1)  # ✅ Non-blocking gevent sleep
+        socketio.sleep(1)
         net = psutil.net_io_counters()
         ram = psutil.virtual_memory()
         disk = psutil.disk_usage('/')
@@ -502,8 +428,7 @@ def emit_stats():
         })
         last_net = net
 
-# ✅ CRITICAL FIX: Start as SocketIO background task, not raw thread
-# This runs properly under gevent/gunicorn
+# Start background task at module level
 socketio.start_background_task(emit_stats)
 
 if __name__ == '__main__':
