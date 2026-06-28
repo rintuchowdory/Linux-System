@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+import gevent.monkey
+gevent.monkey.patch_all()
+
 from flask import Flask, render_template_string
 from flask_socketio import SocketIO
 import psutil
