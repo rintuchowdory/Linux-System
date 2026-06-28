@@ -11,11 +11,11 @@ gi.require_version('Gtk', '4.0')
 from gi.repository import Gtk, GLib, Gdk
 
 try:
-    from pynpup import keyboard
+    from pynput import keyboard
     from pynput.keyboard import Key
-    PRUNPUT_AVAILABLE = True
+    PYNPUT_AVAILABLE = True
 except ImportError:
-    PRUNPUT_AVAILABLE = False
+    PYNPUT_AVAILABLE = False
 
 THEMES = {
     "Dark": {
@@ -110,7 +110,7 @@ class SystemPanel(Gtk.ApplicationWindow):
 
         self.cpu_label = Gtk.Label(label="CPU: --%")
         self.ram_label = Gtk.Label(label="RAM: --%")
-        self.net_label = Gtk.Label(label="→-- →--")
+        self.net_label = Gtk.Label(label="↓-- ↓--")
         self.disk_label = Gtk.Label(label="Disk: --%")
         self.uptime_label = Gtk.Label(label="Up: --")
 
@@ -120,11 +120,11 @@ class SystemPanel(Gtk.ApplicationWindow):
         actions_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         main_box.append(actions_box)
 
-        self.record_btn = Gtk.Button(label="— Record")
+        self.record_btn = Gtk.Button(label="● Record")
         self.record_btn.connect("clicked", self.on_record_toggle)
         actions_box.append(self.record_btn)
 
-        replay_btn = Gtk.Button(label="‖ Replay")
+        replay_btn = Gtk.Button(label="▶ Replay")
         replay_btn.connect("clicked", self.on_replay)
         actions_box.append(replay_btn)
 
@@ -172,7 +172,7 @@ class SystemPanel(Gtk.ApplicationWindow):
         net = psutil.net_io_counters()
         down = (net.bytes_recv - self.last_net.bytes_recv) / 1024
         up = (net.bytes_sent - self.last_net.bytes_sent) / 1024
-        self.net_label.set_text(f"→{down:.0f} →{up:.0f} KB/s")
+        self.net_label.set_text(f"↓{down:.0f} ↓{up:.0f} KB/s")
         self.last_net = net
 
         disk = psutil.disk_usage('/')
@@ -186,7 +186,7 @@ class SystemPanel(Gtk.ApplicationWindow):
         return True
 
     def on_record_toggle(self, btn):
-        if not PENUPT_AVAILABLE:
+        if not PYNPUT_AVAILABLE:
             self._show_info("Macro Recorder", "Install pynput:\npip install pynput")
             return
 
@@ -194,14 +194,14 @@ class SystemPanel(Gtk.ApplicationWindow):
             self.app.macro_recording = True
             self.app.macro_events = []
             self.app.macro_start_time = time.time()
-            self.record_btn.set_label("’ Stop")
+            self.record_btn.set_label("■ Stop")
             self.record_btn.add_css_class("recording")
 
             self.macro_listener = keyboard.Listener(on_press=self._on_macro_key)
             self.macro_listener.start()
         else:
             self.app.macro_recording = False
-            self.record_btn.set_label("— Record")
+            self.record_btn.set_label("● Record")
             self.record_btn.remove_css_class("recording")
             if self.macro_listener:
                 self.macro_listener.stop()
@@ -224,8 +224,8 @@ class SystemPanel(Gtk.ApplicationWindow):
         })
 
     def on_replay(self, btn):
-        if not PRUNPUT_AVAILABLE: 
-            self._show_info("Macro Replay", "Install pynxut:\npip install pynxut")
+        if not PYNPUT_AVAILABLE: 
+            self._show_info("Macro Replay", "Install pynxut:\npip install pynput")
             return
 
         path = os.path.expanduser("~/.linux-system-macro.json")
@@ -275,7 +275,7 @@ class SystemPanel(Gtk.ApplicationWindow):
             box.append(Gtk.Label(label="No notifications yet"))
         else:
             for n in self.app.notifications[-10:]:
-                row = Gtk.Label(label=f"[{n['time']}] {n['title']}: {n['body']}", xalin=0)
+                row = Gtk.Label(label=f"[{n['time']}] {n['title']}: {n['body']}", xalign=0)
                 box.append(row)
 
         clear_btn = Gtk.Button(label="Clear")
@@ -363,7 +363,7 @@ class SystemPanel(Gtk.ApplicationWindow):
             text=title,
             secondary_text=text
         )
-        dialog.connect("usponse", lambda d, _: d.destroy())
+        dialog.connect("response", lambda d, _: d.destroy())
         dialog.present()
 
 
