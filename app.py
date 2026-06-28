@@ -2,14 +2,15 @@
 import gevent.monkey
 gevent.monkey.patch_all()
 
-from flask import Flask, render_template_string, request
+from flask import Flask, render_template_string
 from flask_socketio import SocketIO, emit
 import psutil
 import os
+import subprocess
 import time
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent', ping_timeout=60, ping_interval=25)
 
 HTML = """
 <!DOCTYPE html>
@@ -160,12 +161,24 @@ HTML = """
             border-radius: 12px;
             padding: 15px;
             border: 1px solid rgba(255,255,255,0.08);
-            font-family: 'JetBrains Mono', 'Consolas', monospace;
+            font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
             font-size: 13px;
             color: #cdd6f4;
-            min-height: 200px;
-            white-space: pre-wrap;
+            min-height: 250px;
+            max-height: 400px;
             overflow-y: auto;
+            line-height: 1.5;
+        }
+        .terminal-input-line {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 5px;
+        }
+        .terminal-prompt {
+            color: #89b4fa;
+            font-weight: 600;
+            white-space: nowrap;
         }
         .terminal-input {
             background: transparent;
@@ -173,14 +186,13 @@ HTML = """
             color: #cdd6f4;
             font-family: inherit;
             font-size: 13px;
-            width: 100%;
+            flex: 1;
             outline: none;
-            margin-top: 5px;
         }
-        .terminal-line { margin: 2px 0; }
-        .terminal-prompt { color: #89b4fa; }
+        .terminal-line { margin: 1px 0; }
         .terminal-error { color: #f38ba8; }
         .terminal-success { color: #a6e3a1; }
+        .terminal-info { color: #f9e2af; }
     </style>
 </head>
 <body>
@@ -231,21 +243,24 @@ HTML = """
             <div class="process-list" id="process-list"></div>
         </div>
         <div class="card terminal-card">
-            <h3>💻 Bash Terminal (Simulated)</h3>
+            <h3>💻 Bash Terminal</h3>
             <div class="terminal-window" id="terminal">
-                <div class="terminal-line"><span class="terminal-prompt">user@render:~$</span> welcome to linux-system web terminal</div>
-                <div class="terminal-line">Type 'help' for available commands</div>
+                <div class="terminal-line terminal-info">Linux-System Web Terminal v1.0</div>
+                <div class="terminal-line terminal-info">Type 'help' for available commands</div>
             </div>
-            <input type="text" class="terminal-input" id="terminal-input" placeholder="Type command..." 
-                   onkeydown="if(event.key==='Enter'){runCommand(this.value);this.value=''}">
+            <div class="terminal-input-line">
+                <span class="terminal-prompt">user@render:~$</span>
+                <input type="text" class="terminal-input" id="terminal-input" placeholder="" 
+                       autocomplete="off" spellcheck="false"
+                       onkeydown="if(event.key==='Enter'){runCommand(this.value);this.value='';}">
+            </div>
         </div>
     </div>
 
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <script>
-        const socket = io();
+        const socket = io({ transports: ['websocket', 'polling'] });
         
-        // Connection status
         socket.on('connect', () => {
             const el = document.getElementById('conn-status');
             el.textContent = '● live';
@@ -258,7 +273,6 @@ HTML = """
             el.style.color = '#ef4444';
         });
         
-        // Stats handling
         function setBar(id, value) {
             const el = document.getElementById(id);
             el.style.width = Math.min(value, 100) + '%';
@@ -312,6 +326,7 @@ HTML = """
             line.className = 'terminal-line';
             if (data.error) line.className += ' terminal-error';
             else if (data.success) line.className += ' terminal-success';
+            else if (data.info) line.className += ' terminal-info';
             line.innerHTML = data.output;
             term.appendChild(line);
             term.scrollTop = term.scrollHeight;
@@ -337,13 +352,26 @@ HTML = """
         }
         
         function runCommand(cmd) {
+            if (!cmd.trim()) return;
             const term = document.getElementById('terminal');
             const line = document.createElement('div');
             line.className = 'terminal-line';
-            line.innerHTML = '<span class="terminal-prompt">user@render:~$</span> ' + cmd;
+            line.innerHTML = '<span class="terminal-prompt">user@render:~$</span> ' + escapeHtml(cmd);
             term.appendChild(line);
             socket.emit('terminal_command', cmd);
+            term.scrollTop = term.scrollHeight;
         }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Focus terminal input on load
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('terminal-input').focus();
+        });
     </script>
 </body>
 </html>
@@ -384,21 +412,25 @@ def handle_kill(pid):
 
 @socketio.on('terminal_command')
 def handle_terminal(cmd):
-    """Simple safe command execution for web terminal"""
-    allowed = ['ls', 'pwd', 'whoami', 'uname', 'date', 'uptime', 'ps', 'df', 'free', 'top', 'help', 'echo']
+    """Safe command execution for web terminal"""
+    allowed = ['ls', 'pwd', 'whoami', 'uname', 'date', 'uptime', 'ps', 'df', 'free', 'echo', 'cat', 'head', 'tail', 'wc', 'help', 'clear']
     try:
         parts = cmd.strip().split()
         if not parts:
             return
         base = parts[0]
         if base == 'help':
-            emit('terminal_output', {'output': 'Available: ' + ', '.join(allowed), 'success': True})
+            emit('terminal_output', {'output': 'Available commands: ' + ', '.join(allowed), 'info': True})
+        elif base == 'clear':
+            emit('terminal_output', {'output': '__CLEAR__', 'info': True})
         elif base in allowed:
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
-            output = result.stdout + result.stderr
-            emit('terminal_output', {'output': output.replace('\\n', '<br>') or 'Done', 'success': result.returncode == 0, 'error': result.returncode != 0})
+            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5, cwd='/tmp')
+            output = (result.stdout + result.stderr).strip()
+            emit('terminal_output', {'output': output.replace('\n', '<br>') or '(no output)', 'success': result.returncode == 0, 'error': result.returncode != 0})
         else:
-            emit('terminal_output', {'output': f"Command '{base}' not allowed. Type 'help'", 'error': True})
+            emit('terminal_output', {'output': f"Command '{base}' not allowed. Type 'help' for list.", 'error': True})
+    except subprocess.TimeoutExpired:
+        emit('terminal_output', {'output': 'Command timed out (5s limit)', 'error': True})
     except Exception as e:
         emit('terminal_output', {'output': str(e), 'error': True})
 
@@ -407,29 +439,33 @@ def emit_stats():
     boot_time = psutil.boot_time()
     
     while True:
-        socketio.sleep(1)
-        net = psutil.net_io_counters()
-        ram = psutil.virtual_memory()
-        disk = psutil.disk_usage('/')
-        uptime = time.time() - boot_time
-        
-        socketio.emit('stats', {
-            'cpu': round(psutil.cpu_percent(), 1),
-            'ram': round(ram.percent, 1),
-            'ram_used': round(ram.used / (1024**3), 2),
-            'ram_total': round(ram.total / (1024**3), 2),
-            'net_down': round((net.bytes_recv - last_net.bytes_recv) / 1024, 1),
-            'net_up': round((net.bytes_sent - last_net.bytes_sent) / 1024, 1),
-            'disk': round(disk.percent, 1),
-            'disk_used': round(disk.used / (1024**3), 2),
-            'disk_total': round(disk.total / (1024**3), 2),
-            'uptime': f"{int(uptime//3600)}h {int((uptime%3600)//60)}m",
-            'cores': psutil.cpu_percent(percpu=True)
-        })
-        last_net = net
+        gevent.sleep(1)  # ✅ True gevent sleep, doesn't block event loop
+        try:
+            net = psutil.net_io_counters()
+            ram = psutil.virtual_memory()
+            disk = psutil.disk_usage('/')
+            uptime = time.time() - boot_time
+            
+            socketio.emit('stats', {
+                'cpu': round(psutil.cpu_percent(), 1),
+                'ram': round(ram.percent, 1),
+                'ram_used': round(ram.used / (1024**3), 2),
+                'ram_total': round(ram.total / (1024**3), 2),
+                'net_down': round((net.bytes_recv - last_net.bytes_recv) / 1024, 1),
+                'net_up': round((net.bytes_sent - last_net.bytes_sent) / 1024, 1),
+                'disk': round(disk.percent, 1),
+                'disk_used': round(disk.used / (1024**3), 2),
+                'disk_total': round(disk.total / (1024**3), 2),
+                'uptime': f"{int(uptime//3600)}h {int((uptime%3600)//60)}m",
+                'cores': psutil.cpu_percent(percpu=True)
+            })
+            last_net = net
+        except Exception as e:
+            print(f"Stats error: {e}")
+            gevent.sleep(1)
 
-# Start background task at module level
-socketio.start_background_task(emit_stats)
+# ✅ Use gevent.spawn for true background greenlet
+gevent.spawn(emit_stats)
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
