@@ -9,7 +9,7 @@ import threading
 import time
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 
 HTML = """
 <!DOCTYPE html>
@@ -32,6 +32,8 @@ HTML = """
             padding: 15px 30px;
             background: #181825;
             border-bottom: 2px solid #313244;
+            flex-wrap: wrap;
+            gap: 10px;
         }
         .icons { display: flex; gap: 15px; }
         .icon-btn {
@@ -45,7 +47,7 @@ HTML = """
             transition: 0.3s;
         }
         .icon-btn:hover { background: #89b4fa; color: #1e1e2e; }
-        .stats { display: flex; gap: 25px; font-size: 14px; }
+        .stats { display: flex; gap: 25px; font-size: 14px; align-items: center; }
         .stat { display: flex; align-items: center; gap: 8px; }
         .stat-value { color: #89b4fa; font-weight: bold; }
         .actions { display: flex; gap: 10px; }
@@ -57,9 +59,10 @@ HTML = """
             color: #cdd6f4;
             cursor: pointer;
             font-size: 13px;
+            transition: 0.2s;
         }
         .btn:hover { background: #89b4fa; color: #1e1e2e; }
-        .btn.record { background: #ff5555; }
+        .btn.record { background: #ff5555; color: white; }
         .content {
             padding: 30px;
             display: grid;
@@ -84,8 +87,11 @@ HTML = """
             height: 100%;
             background: linear-gradient(90deg, #89b4fa, #b4befe);
             border-radius: 10px;
-            transition: width 0.5s;
+            transition: width 0.5s ease, background 0.3s ease;
         }
+        .progress-fill.warning { background: linear-gradient(90deg, #f9e2af, #fab387) !important; }
+        .progress-fill.danger { background: linear-gradient(90deg, #f38ba8, #ff5555) !important; }
+        .detail-text { font-size: 12px; color: #a6adc8; margin-top: 5px; }
         .process-list {
             max-height: 400px;
             overflow-y: auto;
@@ -93,6 +99,7 @@ HTML = """
         .process-item {
             display: flex;
             justify-content: space-between;
+            align-items: center;
             padding: 8px;
             border-bottom: 1px solid #313244;
             font-size: 13px;
@@ -104,7 +111,12 @@ HTML = """
             border-radius: 6px;
             color: white;
             cursor: pointer;
+            font-size: 12px;
+            opacity: 0.8;
+            transition: 0.2s;
         }
+        .kill-btn:hover { opacity: 1; transform: scale(1.05); }
+        #conn-status { font-size: 12px; }
     </style>
 </head>
 <body>
@@ -119,10 +131,11 @@ HTML = """
             <button class="icon-btn" onclick="alert('Terminal')">💻</button>
         </div>
         <div class="stats">
-            <div class="stat">CPU: <span class="stat-value" id="cpu">--%</span></div>
-            <div class="stat">RAM: <span class="stat-value" id="ram">--%</span></div>
+            <div class="stat" id="conn-status" style="color: #64748b">● connecting</div>
+            <div class="stat">CPU: <span class="stat-value" id="cpu">--</span></div>
+            <div class="stat">RAM: <span class="stat-value" id="ram">--</span></div>
             <div class="stat">↓<span id="net-down">--</span> ↑<span id="net-up">--</span> KB/s</div>
-            <div class="stat">Disk: <span class="stat-value" id="disk">--%</span></div>
+            <div class="stat">Disk: <span class="stat-value" id="disk">--</span></div>
             <div class="stat">Up: <span id="uptime">--</span></div>
         </div>
         <div class="actions">
@@ -137,17 +150,17 @@ HTML = """
         <div class="card">
             <h3>CPU Usage</h3>
             <div class="progress-bar"><div class="progress-fill" id="cpu-bar" style="width: 0%"></div></div>
-            <div id="cpu-cores"></div>
+            <div class="detail-text" id="cpu-cores">Waiting for data...</div>
         </div>
         <div class="card">
             <h3>Memory Usage</h3>
             <div class="progress-bar"><div class="progress-fill" id="ram-bar" style="width: 0%"></div></div>
-            <div id="ram-details"></div>
+            <div class="detail-text" id="ram-details">Waiting for data...</div>
         </div>
         <div class="card">
             <h3>Disk Usage</h3>
             <div class="progress-bar"><div class="progress-fill" id="disk-bar" style="width: 0%"></div></div>
-            <div id="disk-details"></div>
+            <div class="detail-text" id="disk-details">Waiting for data...</div>
         </div>
         <div class="card" id="process-card" style="display:none;">
             <h3>Top Processes</h3>
@@ -159,6 +172,28 @@ HTML = """
     <script>
         const socket = io();
         
+        // Update connection status
+        socket.on('connect', () => {
+            const el = document.getElementById('conn-status');
+            el.textContent = '● live';
+            el.style.color = '#22c55e';
+        });
+        
+        socket.on('disconnect', () => {
+            const el = document.getElementById('conn-status');
+            el.textContent = '● offline';
+            el.style.color = '#ef4444';
+        });
+        
+        // Helper to set bar width + color
+        function setBar(id, value) {
+            const el = document.getElementById(id);
+            el.style.width = value + '%';
+            el.classList.remove('warning', 'danger');
+            if (value >= 90) el.classList.add('danger');
+            else if (value >= 70) el.classList.add('warning');
+        }
+        
         socket.on('stats', (data) => {
             document.getElementById('cpu').textContent = data.cpu + '%';
             document.getElementById('ram').textContent = data.ram + '%';
@@ -167,9 +202,9 @@ HTML = """
             document.getElementById('disk').textContent = data.disk + '%';
             document.getElementById('uptime').textContent = data.uptime;
             
-            document.getElementById('cpu-bar').style.width = data.cpu + '%';
-            document.getElementById('ram-bar').style.width = data.ram + '%';
-            document.getElementById('disk-bar').style.width = data.disk + '%';
+            setBar('cpu-bar', data.cpu);
+            setBar('ram-bar', data.ram);
+            setBar('disk-bar', data.disk);
             
             document.getElementById('cpu-cores').innerHTML = data.cores.map((c,i) => 
                 `Core ${i}: ${c}%`).join('<br>');
@@ -181,13 +216,21 @@ HTML = """
         
         socket.on('processes', (data) => {
             const list = document.getElementById('process-list');
-            list.innerHTML = data.map(p => `
-                <div class="process-item">
-                    <span>PID ${p.pid} | ${p.name} | CPU ${p.cpu}% | MEM ${p.mem}%</span>
-                    <button class="kill-btn" onclick="killProcess(${p.pid})">Kill</button>
-                </div>
-            `).join('');
+            if (!data || data.length === 0) {
+                list.innerHTML = '<div class="process-item">No processes found</div>';
+            } else {
+                list.innerHTML = data.map(p => `
+                    <div class="process-item">
+                        <span>PID ${p.pid} | ${p.name} | CPU ${p.cpu}% | MEM ${p.mem}%</span>
+                        <button class="kill-btn" onclick="confirmKill(${p.pid}, '${p.name.replace(/'/g, "\\'")}')">Kill</button>
+                    </div>
+                `).join('');
+            }
             document.getElementById('process-card').style.display = 'block';
+        });
+        
+        socket.on('notification', (data) => {
+            alert(data.title + ': ' + data.body);
         });
         
         let recording = false;
@@ -203,8 +246,10 @@ HTML = """
             socket.emit('get_processes');
         }
         
-        function killProcess(pid) {
-            socket.emit('kill_process', pid);
+        function confirmKill(pid, name) {
+            if (confirm(`Kill process ${name} (PID ${pid})?`)) {
+                socket.emit('kill_process', pid);
+            }
         }
     </script>
 </body>
@@ -250,7 +295,7 @@ def emit_stats():
     boot_time = psutil.boot_time()
     
     while True:
-        time.sleep(1)
+        socketio.sleep(1)  # ✅ Gevent-compatible non-blocking sleep
         net = psutil.net_io_counters()
         ram = psutil.virtual_memory()
         disk = psutil.disk_usage('/')
@@ -271,6 +316,9 @@ def emit_stats():
         })
         last_net = net
 
+# ✅ CRITICAL FIX: Start background thread HERE, not inside if __name__
+# Gunicorn imports this module, so __main__ never runs
+threading.Thread(target=emit_stats, daemon=True).start()
+
 if __name__ == '__main__':
-    threading.Thread(target=emit_stats, daemon=True).start()
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
