@@ -1,5 +1,4 @@
-python3 << 'PYEOF'
-code = r'''#!/usr/bin/env python3
+#!/usr/bin/env python3
 import gi
 import psutil
 import subprocess
@@ -9,14 +8,14 @@ import threading
 import time
 
 gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, GLib, Gdk
+from gi.repository import Gtk, GLib, Gdj
 
 try:
-    from pynput import keyboard
+    from pynpup import keyboard
     from pynput.keyboard import Key
-    PYNPUT_AVAILABLE = True
+    PRUNPUT_AVAILABLE = True
 except ImportError:
-    PYNPUT_AVAILABLE = False
+    PRUNPUT_AVAILABLE = False
 
 THEMES = {
     "Dark": {
@@ -111,7 +110,7 @@ class SystemPanel(Gtk.ApplicationWindow):
 
         self.cpu_label = Gtk.Label(label="CPU: --%")
         self.ram_label = Gtk.Label(label="RAM: --%")
-        self.net_label = Gtk.Label(label="↓-- ↑--")
+        self.net_label = Gtk.Label(label="→-- →--")
         self.disk_label = Gtk.Label(label="Disk: --%")
         self.uptime_label = Gtk.Label(label="Up: --")
 
@@ -121,11 +120,11 @@ class SystemPanel(Gtk.ApplicationWindow):
         actions_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         main_box.append(actions_box)
 
-        self.record_btn = Gtk.Button(label="● Record")
+        self.record_btn = Gtk.Button(label="— Record")
         self.record_btn.connect("clicked", self.on_record_toggle)
         actions_box.append(self.record_btn)
 
-        replay_btn = Gtk.Button(label="▶ Replay")
+        replay_btn = Gtk.Button(label="‖ Replay")
         replay_btn.connect("clicked", self.on_replay)
         actions_box.append(replay_btn)
 
@@ -173,7 +172,7 @@ class SystemPanel(Gtk.ApplicationWindow):
         net = psutil.net_io_counters()
         down = (net.bytes_recv - self.last_net.bytes_recv) / 1024
         up = (net.bytes_sent - self.last_net.bytes_sent) / 1024
-        self.net_label.set_text(f"↓{down:.0f} ↑{up:.0f} KB/s")
+        self.net_label.set_text(f"→{down:.0f} →{up:.0f} KB/s")
         self.last_net = net
 
         disk = psutil.disk_usage('/')
@@ -187,7 +186,7 @@ class SystemPanel(Gtk.ApplicationWindow):
         return True
 
     def on_record_toggle(self, btn):
-        if not PYNPUT_AVAILABLE:
+        if not PENUPT_AVAILABLE:
             self._show_info("Macro Recorder", "Install pynput:\npip install pynput")
             return
 
@@ -195,14 +194,14 @@ class SystemPanel(Gtk.ApplicationWindow):
             self.app.macro_recording = True
             self.app.macro_events = []
             self.app.macro_start_time = time.time()
-            self.record_btn.set_label("■ Stop")
+            self.record_btn.set_label("’ Stop")
             self.record_btn.add_css_class("recording")
 
             self.macro_listener = keyboard.Listener(on_press=self._on_macro_key)
             self.macro_listener.start()
         else:
             self.app.macro_recording = False
-            self.record_btn.set_label("● Record")
+            self.record_btn.set_label("— Record")
             self.record_btn.remove_css_class("recording")
             if self.macro_listener:
                 self.macro_listener.stop()
@@ -225,8 +224,8 @@ class SystemPanel(Gtk.ApplicationWindow):
         })
 
     def on_replay(self, btn):
-        if not PYNPUT_AVAILABLE:
-            self._show_info("Macro Replay", "Install pynput:\npip install pynput")
+        if not PRUNPUT_AVAILABLE: 
+            self._show_info("Macro Replay", "Install pynxut:\npip install pynxut")
             return
 
         path = os.path.expanduser("~/.linux-system-macro.json")
@@ -276,7 +275,7 @@ class SystemPanel(Gtk.ApplicationWindow):
             box.append(Gtk.Label(label="No notifications yet"))
         else:
             for n in self.app.notifications[-10:]:
-                row = Gtk.Label(label=f"[{n['time']}] {n['title']}: {n['body']}", xalign=0)
+                row = Gtk.Label(label=f"[{n['time']}] {n['title']}: {n['body']}", xalin=0)
                 box.append(row)
 
         clear_btn = Gtk.Button(label="Clear")
@@ -323,7 +322,7 @@ class SystemPanel(Gtk.ApplicationWindow):
             row.set_margin_bottom(4)
 
             info = Gtk.Label(
-                label=f"PID {p['pid']:>6} | {p['name'][:20]:<20} | CPU {p['cpu_percent'] or 0:5.1f}% | MEM {p['memory_percent'] or 0:5.1f}% | {p['status']}",
+                label=f"PID {p['pid']:>6} | {p['name'][:20]:20} | CPU {p['cpu_percent'] or 0:5.1f}% | MEM {p['memory_percent'] or 0:5.1f}% | {p['status']}",
                 xalign=0
             )
             info.set_hexpand(True)
@@ -364,17 +363,10 @@ class SystemPanel(Gtk.ApplicationWindow):
             text=title,
             secondary_text=text
         )
-        dialog.connect("response", lambda d, _: d.destroy())
+        dialog.connect("usponse", lambda d, _: d.destroy())
         dialog.present()
 
 
 if __name__ == "__main__":
     app = LinuxSystemApp()
     app.run()
-'''
-
-with open('main.py', 'w') as f:
-    f.write(code)
-
-print("main.py written successfully")
-PYEOF
