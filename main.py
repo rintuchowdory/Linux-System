@@ -98,7 +98,7 @@ class SystemPanel(Gtk.ApplicationWindow):
             ("Browser", "web-browser", "firefox"),
             ("Editor", "text-editor", "gedit"),
             ("Calendar", "x-office-calendar", "gnome-calendar"),
-            ("Terminal", "utilities-terminal", "gnome-terminal"),
+            ("Terminal", "utilities-terminal", "qterminal"),
         ]:
             btn = self._create_icon_button(name, icon_name, cmd)
             icons_box.append(btn)
