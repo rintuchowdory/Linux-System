@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+thon3
 import gevent.monkey
 gevent.monkey.patch_all()
 
@@ -10,7 +10,7 @@ import subprocess
 import time
 import gevent
 import platform
-from datetime import datetime
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent', ping_timeout=60, ping_interval=25)
@@ -23,301 +23,127 @@ HTML = """
     <meta charset="utf-8">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            background: #0f0f1a;
-            color: #cdd6f4;
-            font-family: 'Segoe UI', Ubuntu, sans-serif;
-            min-height: 100vh;
-        }
-        body::before {
-            content: '';
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: 
-                radial-gradient(ellipse at 20% 50%, rgba(120, 40, 180, 0.4) 0%, transparent 50%),
+        body { background: #0f0f1a; color: #cdd6f4; font-family: 'Segoe UI', Ubuntu, sans-serif; min-height: 100vh; }
+        body::before { content: ''; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: radial-gradient(ellipse at 20% 50%, rgba(120, 40, 180, 0.4) 0%, transparent 50%),
                 radial-gradient(ellipse at 80% 20%, rgba(255, 100, 50, 0.3) 0%, transparent 50%),
                 radial-gradient(ellipse at 50% 80%, rgba(40, 100, 255, 0.3) 0%, transparent 50%);
-            z-index: -1;
-            pointer-events: none;
-        }
-        .panel {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 12px 25px;
-            background: rgba(24, 24, 37, 0.85);
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-            flex-wrap: wrap;
-            gap: 10px;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-        .icons { display: flex; gap: 12px; }
-        .icon-btn {
-            width: 42px; height: 42px;
-            border-radius: 12px;
-            background: rgba(255,255,255,0.06);
-            border: 1px solid rgba(255,255,255,0.08);
-            color: #fff;
-            font-size: 20px;
-            cursor: pointer;
-            transition: all 0.3s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .icon-btn:hover, .icon-btn.active { 
-            background: rgba(137, 180, 250, 0.2); 
-            transform: translateY(-2px);
-            border-color: #89b4fa;
-        }
-        .stats { display: flex; gap: 20px; font-size: 13px; align-items: center; }
+            z-index: -1; pointer-events: none; }
+        .panel { display: flex; align-items: center; justify-content: space-between; padding: 12px 25px;
+            background: rgba(24, 24, 37, 0.85); backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255,255,255,0.05); flex-wrap: wrap; gap: 10px;
+            position: sticky; top: 0; z-index: 100; }
+        .icons { display: flex; gap: 12px; flex-wrap: wrap; }
+        .icon-btn { width: 42px; height: 42px; border-radius: 12px; background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.08); color: #fff; font-size: 20px; cursor: pointer;
+            transition: all 0.3s; display: flex; align-items: center; justify-content: center; }
+        .icon-btn:hover, .icon-btn.active { background: rgba(137, 180, 250, 0.2); transform: translateY(-2px); border-color: #89b4fa; }
+        .stats { display: flex; gap: 20px; font-size: 13px; align-items: center; flex-wrap: wrap; }
         .stat { display: flex; align-items: center; gap: 6px; }
         .stat-value { color: #89b4fa; font-weight: 600; }
-        .actions { display: flex; gap: 10px; }
-        .btn {
-            padding: 8px 16px;
-            border-radius: 8px;
-            border: none;
-            background: rgba(255,255,255,0.06);
-            color: #cdd6f4;
-            cursor: pointer;
-            font-size: 13px;
-            transition: 0.2s;
-            border: 1px solid rgba(255,255,255,0.08);
-        }
+        .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+        .btn { padding: 8px 16px; border-radius: 8px; border: none; background: rgba(255,255,255,0.06);
+            color: #cdd6f4; cursor: pointer; font-size: 13px; transition: 0.2s;
+            border: 1px solid rgba(255,255,255,0.08); }
         .btn:hover { background: rgba(137, 180, 250, 0.2); }
         .btn.record { background: rgba(255, 85, 85, 0.8); color: white; }
-        .content {
-            padding: 25px;
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-            gap: 20px;
-            max-width: 1600px;
-            margin: 0 auto;
-        }
-        .card {
-            background: rgba(24, 24, 37, 0.7);
-            backdrop-filter: blur(10px);
-            border-radius: 16px;
-            padding: 20px;
-            border: 1px solid rgba(255,255,255,0.06);
-            transition: transform 0.3s;
-        }
+        .btn.success { background: rgba(166, 227, 161, 0.2); color: #a6e3a1; }
+        .btn.danger { background: rgba(243, 139, 168, 0.2); color: #f38ba8; }
+        .content { padding: 25px; display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 20px; max-width: 1600px; margin: 0 auto; }
+        .card { background: rgba(24, 24, 37, 0.7); backdrop-filter: blur(10px); border-radius: 16px;
+            padding: 20px; border: 1px solid rgba(255,255,255,0.06); transition: transform 0.3s; }
         .card:hover { transform: translateY(-2px); }
         .card h3 { margin-bottom: 15px; color: #89b4fa; font-size: 15px; display: flex; align-items: center; gap: 8px; }
         .card.full-width { grid-column: 1 / -1; }
-        .progress-bar {
-            width: 100%; height: 22px;
-            background: rgba(255,255,255,0.05);
-            border-radius: 11px;
-            overflow: hidden;
-            margin: 10px 0;
-            border: 1px solid rgba(255,255,255,0.05);
-        }
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #89b4fa, #b4befe);
-            border-radius: 11px;
-            transition: width 0.5s ease, background 0.3s ease;
-            box-shadow: 0 0 10px rgba(137,180,250,0.3);
-        }
-        .progress-fill.warning { 
-            background: linear-gradient(90deg, #f9e2af, #fab387) !important; 
-            box-shadow: 0 0 10px rgba(249,226,175,0.3);
-        }
-        .progress-fill.danger { 
-            background: linear-gradient(90deg, #f38ba8, #ff5555) !important; 
-            box-shadow: 0 0 10px rgba(243,139,168,0.3);
-        }
+        .progress-bar { width: 100%; height: 22px; background: rgba(255,255,255,0.05);
+            border-radius: 11px; overflow: hidden; margin: 10px 0; border: 1px solid rgba(255,255,255,0.05); }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #89b4fa, #b4befe);
+            border-radius: 11px; transition: width 0.5s ease, background 0.3s ease;
+            box-shadow: 0 0 10px rgba(137,180,250,0.3); }
+        .progress-fill.warning { background: linear-gradient(90deg, #f9e2af, #fab387) !important;
+            box-shadow: 0 0 10px rgba(249,226,175,0.3); }
+        .progress-fill.danger { background: linear-gradient(90deg, #f38ba8, #ff5555) !important;
+            box-shadow: 0 0 10px rgba(243,139,168,0.3); }
         .detail-text { font-size: 12px; color: #a6adc8; margin-top: 8px; line-height: 1.6; }
-        .process-list, .service-list, .log-content, .file-list {
-            max-height: 350px;
-            overflow-y: auto;
-            font-size: 13px;
-        }
-        .process-item, .service-item, .file-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 8px 10px;
-            border-bottom: 1px solid rgba(255,255,255,0.04);
-            transition: background 0.2s;
-        }
-        .process-item:hover, .service-item:hover, .file-item:hover { background: rgba(255,255,255,0.03); }
-        .kill-btn, .service-btn {
-            background: rgba(255, 85, 85, 0.8);
-            border: none;
-            padding: 4px 12px;
-            border-radius: 6px;
-            color: white;
-            cursor: pointer;
-            font-size: 12px;
-            opacity: 0.8;
-            transition: 0.2s;
-        }
-        .service-btn { background: rgba(137, 180, 250, 0.3); }
-        .service-btn.stop { background: rgba(255, 85, 85, 0.3); }
-        .service-btn:hover, .kill-btn:hover { opacity: 1; transform: scale(1.05); }
-        .status-badge {
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-            font-weight: 600;
-        }
-        .status-badge.active { background: rgba(166, 227, 161, 0.2); color: #a6e3a1; }
-        .status-badge.inactive { background: rgba(243, 139, 168, 0.2); color: #f38ba8; }
+        .process-list, .service-list, .log-content, .file-list, .cron-list, .docker-list, .firewall-list, .ssh-list, .task-list {
+            max-height: 350px; overflow-y: auto; font-size: 13px; }
+        .process-item, .service-item, .file-item, .cron-item, .docker-item, .firewall-item, .ssh-item, .task-item {
+            display: flex; justify-content: space-between; align-items: center; padding: 8px 10px;
+            border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.2s; }
+        .process-item:hover, .service-item:hover, .file-item:hover, .cron-item:hover, .docker-item:hover, .firewall-item:hover, .ssh-item:hover, .task-item:hover { background: rgba(255,255,255,0.03); }
+        .kill-btn, .service-btn, .docker-btn, .cron-btn, .task-btn, .ssh-btn {
+            background: rgba(255, 85, 85, 0.8); border: none; padding: 4px 12px; border-radius: 6px;
+            color: white; cursor: pointer; font-size: 12px; opacity: 0.8; transition: 0.2s; }
+        .service-btn, .docker-btn, .cron-btn, .task-btn { background: rgba(137, 180, 250, 0.3); }
+        .service-btn.stop, .docker-btn.stop { background: rgba(255, 85, 85, 0.3); }
+        .service-btn:hover, .kill-btn:hover, .docker-btn:hover, .cron-btn:hover, .task-btn:hover, .ssh-btn:hover { opacity: 1; transform: scale(1.05); }
+        .status-badge { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .status-badge.active, .status-badge.running { background: rgba(166, 227, 161, 0.2); color: #a6e3a1; }
+        .status-badge.inactive, .status-badge.exited, .status-badge.dead { background: rgba(243, 139, 168, 0.2); color: #f38ba8; }
+        .status-badge.paused { background: rgba(249, 226, 175, 0.2); color: #f9e2af; }
         #conn-status { font-size: 12px; font-weight: 600; }
-        .terminal-window {
-            background: #0c0c14;
-            border-radius: 12px;
-            padding: 15px;
-            border: 1px solid rgba(255,255,255,0.08);
-            font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
-            font-size: 13px;
-            color: #cdd6f4;
-            min-height: 250px;
-            max-height: 400px;
-            overflow-y: auto;
-            line-height: 1.5;
-        }
-        .terminal-input-line {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-top: 5px;
-        }
-        .terminal-prompt {
-            color: #89b4fa;
-            font-weight: 600;
-            white-space: nowrap;
-        }
-        .terminal-input {
-            background: transparent;
-            border: none;
-            color: #cdd6f4;
-            font-family: inherit;
-            font-size: 13px;
-            flex: 1;
-            outline: none;
-        }
+        .terminal-window { background: #0c0c14; border-radius: 12px; padding: 15px;
+            border: 1px solid rgba(255,255,255,0.08); font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
+            font-size: 13px; color: #cdd6f4; min-height: 250px; max-height: 400px; overflow-y: auto; line-height: 1.5; }
+        .terminal-input-line { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+        .terminal-prompt { color: #89b4fa; font-weight: 600; white-space: nowrap; }
+        .terminal-input { background: transparent; border: none; color: #cdd6f4; font-family: inherit;
+            font-size: 13px; flex: 1; outline: none; }
         .terminal-line { margin: 1px 0; }
         .terminal-error { color: #f38ba8; }
         .terminal-success { color: #a6e3a1; }
         .terminal-info { color: #f9e2af; }
-        .info-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 10px;
-        }
-        .info-item {
-            background: rgba(255,255,255,0.03);
-            padding: 10px;
-            border-radius: 8px;
-            border: 1px solid rgba(255,255,255,0.05);
-        }
+        .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+        .info-item { background: rgba(255,255,255,0.03); padding: 10px; border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.05); }
         .info-label { font-size: 11px; color: #a6adc8; text-transform: uppercase; letter-spacing: 0.5px; }
         .info-value { font-size: 14px; color: #cdd6f4; font-weight: 600; margin-top: 4px; }
-        .net-interface {
-            background: rgba(255,255,255,0.03);
-            padding: 12px;
-            border-radius: 10px;
-            margin-bottom: 10px;
-            border: 1px solid rgba(255,255,255,0.05);
-        }
+        .net-interface { background: rgba(255,255,255,0.03); padding: 12px; border-radius: 10px;
+            margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.05); }
         .net-name { font-weight: 600; color: #89b4fa; margin-bottom: 5px; }
-        .net-stats { display: flex; gap: 15px; font-size: 12px; color: #a6adc8; }
+        .net-stats { display: flex; gap: 15px; font-size: 12px; color: #a6adc8; flex-wrap: wrap; }
         .log-line { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.02); font-family: monospace; font-size: 12px; }
         .log-time { color: #89b4fa; }
         .log-error { color: #f38ba8; }
         .log-warn { color: #f9e2af; }
         .hidden { display: none !important; }
-        .tab-bar {
-            display: flex;
-            gap: 5px;
-            margin-bottom: 15px;
-            border-bottom: 1px solid rgba(255,255,255,0.08);
-            padding-bottom: 10px;
-        }
-        .tab-btn {
-            padding: 6px 14px;
-            border-radius: 6px;
-            border: none;
-            background: transparent;
-            color: #a6adc8;
-            cursor: pointer;
-            font-size: 13px;
-            transition: 0.2s;
-        }
+        .tab-bar { display: flex; gap: 5px; margin-bottom: 15px; border-bottom: 1px solid rgba(255,255,255,0.08);
+            padding-bottom: 10px; flex-wrap: wrap; }
+        .tab-btn { padding: 6px 14px; border-radius: 6px; border: none; background: transparent;
+            color: #a6adc8; cursor: pointer; font-size: 13px; transition: 0.2s; }
         .tab-btn:hover { background: rgba(255,255,255,0.05); color: #cdd6f4; }
         .tab-btn.active { background: rgba(137, 180, 250, 0.15); color: #89b4fa; }
-        .search-box {
-            background: rgba(255,255,255,0.05);
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 8px;
-            padding: 8px 12px;
-            color: #cdd6f4;
-            font-size: 13px;
-            width: 100%;
-            margin-bottom: 10px;
-            outline: none;
-        }
+        .search-box { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 8px; padding: 8px 12px; color: #cdd6f4; font-size: 13px; width: 100%;
+            margin-bottom: 10px; outline: none; }
         .search-box:focus { border-color: #89b4fa; }
-        .file-row {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 6px 0;
-            cursor: pointer;
-        }
+        .file-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; cursor: pointer; }
         .file-row:hover { color: #89b4fa; }
         .file-icon { font-size: 16px; }
-        .modal-overlay {
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.7);
-            display: none;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-            backdrop-filter: blur(5px);
-        }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7);
+            display: none; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(5px); }
         .modal-overlay.show { display: flex; }
-        .modal {
-            background: #181825;
-            border-radius: 16px;
-            padding: 25px;
-            max-width: 800px;
-            width: 90%;
-            max-height: 80vh;
-            overflow-y: auto;
-            border: 1px solid rgba(255,255,255,0.08);
-        }
+        .modal { background: #181825; border-radius: 16px; padding: 25px; max-width: 800px; width: 90%;
+            max-height: 80vh; overflow-y: auto; border: 1px solid rgba(255,255,255,0.08); }
         .modal h3 { margin-bottom: 15px; color: #89b4fa; }
-        .modal-close {
-            float: right;
-            background: none;
-            border: none;
-            color: #a6adc8;
-            font-size: 20px;
-            cursor: pointer;
-        }
-        .editor-textarea {
-            width: 100%;
-            min-height: 300px;
-            background: #0c0c14;
-            border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 8px;
-            padding: 12px;
-            color: #cdd6f4;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 13px;
-            resize: vertical;
-            outline: none;
-        }
+        .modal-close { float: right; background: none; border: none; color: #a6adc8; font-size: 20px; cursor: pointer; }
+        .editor-textarea { width: 100%; min-height: 300px; background: #0c0c14;
+            border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px; color: #cdd6f4;
+            font-family: 'JetBrains Mono', monospace; font-size: 13px; resize: vertical; outline: none; }
         .editor-textarea:focus { border-color: #89b4fa; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; font-size: 12px; color: #a6adc8; margin-bottom: 5px; text-transform: uppercase; }
+        .form-group input, .form-group select, .form-group textarea { width: 100%; background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 8px 12px; color: #cdd6f4;
+            font-size: 13px; outline: none; }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus { border-color: #89b4fa; }
+        .docker-stats { display: flex; gap: 15px; margin-bottom: 15px; flex-wrap: wrap; }
+        .docker-stat { background: rgba(255,255,255,0.03); padding: 10px 15px; border-radius: 8px; }
+        .docker-stat-label { font-size: 11px; color: #a6adc8; }
+        .docker-stat-value { font-size: 18px; color: #89b4fa; font-weight: 600; }
+        .empty-state { text-align: center; padding: 40px; color: #a6adc8; }
+        .empty-state-icon { font-size: 48px; margin-bottom: 10px; }
     </style>
 </head>
 <body>
@@ -329,6 +155,11 @@ HTML = """
             <button class="icon-btn" onclick="switchTab('files')" id="tab-btn-files" title="Files">📁</button>
             <button class="icon-btn" onclick="switchTab('logs')" id="tab-btn-logs" title="Logs">📋</button>
             <button class="icon-btn" onclick="switchTab('system')" id="tab-btn-system" title="System Info">💻</button>
+            <button class="icon-btn" onclick="switchTab('firewall')" id="tab-btn-firewall" title="Firewall">🔥</button>
+            <button class="icon-btn" onclick="switchTab('cron')" id="tab-btn-cron" title="Cron Manager">⏰</button>
+            <button class="icon-btn" onclick="switchTab('docker')" id="tab-btn-docker" title="Docker">🐳</button>
+            <button class="icon-btn" onclick="switchTab('ssh')" id="tab-btn-ssh" title="SSH Keys">🔑</button>
+            <button class="icon-btn" onclick="switchTab('tasks')" id="tab-btn-tasks" title="Task Scheduler">📅</button>
             <button class="icon-btn" onclick="switchTab('terminal')" id="tab-btn-terminal" title="Terminal">🖥️</button>
         </div>
         <div class="stats">
@@ -346,7 +177,7 @@ HTML = """
             <button class="btn" onclick="loadProcesses()">⚙ Processes</button>
         </div>
     </div>
-    
+
     <div class="content" id="tab-dashboard">
         <div class="card">
             <h3>🔥 CPU Usage</h3>
@@ -399,7 +230,7 @@ HTML = """
     <div class="content hidden" id="tab-files">
         <div class="card full-width">
             <h3>📁 File Manager</h3>
-            <div style="display:flex; gap:10px; margin-bottom:10px;">
+            <div style="display:flex; gap:10px; margin-bottom:10px; flex-wrap:wrap;">
                 <button class="btn" onclick="loadFiles('/tmp')">/tmp</button>
                 <button class="btn" onclick="loadFiles('/home')">/home</button>
                 <button class="btn" onclick="loadFiles('/var/log')">/var/log</button>
@@ -438,6 +269,69 @@ HTML = """
         </div>
     </div>
 
+    <div class="content hidden" id="tab-firewall">
+        <div class="card full-width">
+            <h3>🔥 Firewall Rules</h3>
+            <div class="tab-bar">
+                <button class="tab-btn active" onclick="loadFirewall('iptables')">iptables</button>
+                <button class="tab-btn" onclick="loadFirewall('nftables')">nftables</button>
+                <button class="tab-btn" onclick="loadFirewall('ufw')">UFW</button>
+            </div>
+            <div class="firewall-list" id="firewall-list">Loading firewall rules...</div>
+        </div>
+    </div>
+
+    <div class="content hidden" id="tab-cron">
+        <div class="card full-width">
+            <h3>⏰ Cron Manager</h3>
+            <div style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap;">
+                <button class="btn success" onclick="showAddCron()">+ Add Cron Job</button>
+                <button class="btn" onclick="loadCron()">🔄 Refresh</button>
+            </div>
+            <div class="cron-list" id="cron-list">Loading cron jobs...</div>
+        </div>
+    </div>
+
+    <div class="content hidden" id="tab-docker">
+        <div class="card full-width">
+            <h3>🐳 Docker Monitor</h3>
+            <div class="docker-stats" id="docker-stats">
+                <div class="docker-stat"><div class="docker-stat-label">Containers</div><div class="docker-stat-value" id="docker-total">--</div></div>
+                <div class="docker-stat"><div class="docker-stat-label">Running</div><div class="docker-stat-value" id="docker-running">--</div></div>
+                <div class="docker-stat"><div class="docker-stat-label">Stopped</div><div class="docker-stat-value" id="docker-stopped">--</div></div>
+                <div class="docker-stat"><div class="docker-stat-label">Images</div><div class="docker-stat-value" id="docker-images">--</div></div>
+            </div>
+            <div class="tab-bar">
+                <button class="tab-btn active" onclick="filterDocker('all')">All</button>
+                <button class="tab-btn" onclick="filterDocker('running')">Running</button>
+                <button class="tab-btn" onclick="filterDocker('exited')">Stopped</button>
+            </div>
+            <div class="docker-list" id="docker-list">Loading containers...</div>
+        </div>
+    </div>
+
+    <div class="content hidden" id="tab-ssh">
+        <div class="card full-width">
+            <h3>🔑 SSH Key Manager</h3>
+            <div style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap;">
+                <button class="btn success" onclick="showGenerateKey()">+ Generate Key</button>
+                <button class="btn" onclick="loadSSHKeys()">🔄 Refresh</button>
+            </div>
+            <div class="ssh-list" id="ssh-list">Loading SSH keys...</div>
+        </div>
+    </div>
+
+    <div class="content hidden" id="tab-tasks">
+        <div class="card full-width">
+            <h3>📅 Task Scheduler</h3>
+            <div style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap;">
+                <button class="btn success" onclick="showAddTask()">+ Schedule Task</button>
+                <button class="btn" onclick="loadTasks()">🔄 Refresh</button>
+            </div>
+            <div class="task-list" id="task-list">Loading scheduled tasks...</div>
+        </div>
+    </div>
+
     <div class="content hidden" id="tab-terminal">
         <div class="card full-width">
             <h3>🖥️ Bash Terminal</h3>
@@ -467,6 +361,76 @@ HTML = """
         </div>
     </div>
 
+    <div class="modal-overlay" id="cron-modal">
+        <div class="modal">
+            <button class="modal-close" onclick="closeCronModal()">×</button>
+            <h3>➕ Add Cron Job</h3>
+            <div class="form-group">
+                <label>Schedule (cron expression)</label>
+                <input type="text" id="cron-schedule" placeholder="*/5 * * * *" value="*/5 * * * *">
+                <div style="font-size:11px;color:#a6adc8;margin-top:4px;">Format: min hour day month weekday</div>
+            </div>
+            <div class="form-group">
+                <label>Command</label>
+                <input type="text" id="cron-command" placeholder="/usr/bin/python3 /path/to/script.py">
+            </div>
+            <div style="display:flex; gap:10px;">
+                <button class="btn success" onclick="addCron()">💾 Add Job</button>
+                <button class="btn" onclick="closeCronModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="ssh-modal">
+        <div class="modal">
+            <button class="modal-close" onclick="closeSSHModal()">×</button>
+            <h3>🔑 Generate SSH Key</h3>
+            <div class="form-group">
+                <label>Key Name</label>
+                <input type="text" id="ssh-name" placeholder="id_rsa_render">
+            </div>
+            <div class="form-group">
+                <label>Key Type</label>
+                <select id="ssh-type">
+                    <option value="rsa">RSA</option>
+                    <option value="ed25519">Ed25519</option>
+                    <option value="ecdsa">ECDSA</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Comment (optional)</label>
+                <input type="text" id="ssh-comment" placeholder="user@render">
+            </div>
+            <div style="display:flex; gap:10px;">
+                <button class="btn success" onclick="generateKey()">🔨 Generate</button>
+                <button class="btn" onclick="closeSSHModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="task-modal">
+        <div class="modal">
+            <button class="modal-close" onclick="closeTaskModal()">×</button>
+            <h3>📅 Schedule One-Time Task</h3>
+            <div class="form-group">
+                <label>Task Name</label>
+                <input type="text" id="task-name" placeholder="backup-database">
+            </div>
+            <div class="form-group">
+                <label>Command</label>
+                <input type="text" id="task-command" placeholder="/usr/bin/pg_dump mydb > /tmp/backup.sql">
+            </div>
+            <div class="form-group">
+                <label>Run At (YYYY-MM-DD HH:MM)</label>
+                <input type="text" id="task-time" placeholder="2026-07-01 14:30">
+            </div>
+            <div style="display:flex; gap:10px;">
+                <button class="btn success" onclick="addTask()">📅 Schedule</button>
+                <button class="btn" onclick="closeTaskModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <script>
         const socket = io({ transports: ['websocket', 'polling'] });
@@ -474,30 +438,39 @@ HTML = """
         let currentFile = '';
         let servicesData = [];
         let logsData = [];
-        
+        let dockerData = [];
+        let cronData = [];
+        let sshData = [];
+        let taskData = [];
+
         function switchTab(tab) {
             document.querySelectorAll('.content').forEach(c => c.classList.add('hidden'));
             document.getElementById('tab-' + tab).classList.remove('hidden');
             document.querySelectorAll('.icon-btn').forEach(b => b.classList.remove('active'));
             document.getElementById('tab-btn-' + tab).classList.add('active');
-            
+
             if (tab === 'services') loadServices();
             if (tab === 'network') loadNetwork();
             if (tab === 'files') loadFiles(currentPath);
             if (tab === 'logs') loadLogs('syslog');
             if (tab === 'system') loadSystemInfo();
+            if (tab === 'firewall') loadFirewall('iptables');
+            if (tab === 'cron') loadCron();
+            if (tab === 'docker') loadDocker();
+            if (tab === 'ssh') loadSSHKeys();
+            if (tab === 'tasks') loadTasks();
         }
-        
+
         socket.on('connect', () => {
             document.getElementById('conn-status').textContent = '● live';
             document.getElementById('conn-status').style.color = '#22c55e';
         });
-        
+
         socket.on('disconnect', () => {
             document.getElementById('conn-status').textContent = '● offline';
             document.getElementById('conn-status').style.color = '#ef4444';
         });
-        
+
         function setBar(id, value) {
             const el = document.getElementById(id);
             el.style.width = Math.min(value, 100) + '%';
@@ -505,7 +478,7 @@ HTML = """
             if (value >= 90) el.classList.add('danger');
             else if (value >= 70) el.classList.add('warning');
         }
-        
+
         socket.on('stats', (data) => {
             document.getElementById('cpu').textContent = data.cpu + '%';
             document.getElementById('ram').textContent = data.ram + '%';
@@ -513,11 +486,11 @@ HTML = """
             document.getElementById('net-up').textContent = data.net_up;
             document.getElementById('disk').textContent = data.disk + '%';
             document.getElementById('uptime').textContent = data.uptime;
-            
+
             setBar('cpu-bar', data.cpu);
             setBar('ram-bar', data.ram);
             setBar('disk-bar', data.disk);
-            
+
             document.getElementById('cpu-cores').innerHTML = data.cores.map((c,i) => 
                 `Core ${i}: ${c}%`).join('<br>');
             document.getElementById('ram-details').innerHTML = 
@@ -525,7 +498,7 @@ HTML = """
             document.getElementById('disk-details').innerHTML = 
                 `Used: ${data.disk_used}GB / Total: ${data.disk_total}GB`;
         });
-        
+
         socket.on('processes', (data) => {
             const list = document.getElementById('process-list');
             if (!data || data.length === 0) {
@@ -540,9 +513,10 @@ HTML = """
             }
             document.getElementById('process-card').style.display = 'block';
         });
-        
+
         socket.on('notification', (data) => alert(data.title + ': ' + data.body));
-        
+
+        // Services
         function loadServices() {
             socket.emit('get_services');
         }
@@ -554,7 +528,7 @@ HTML = """
             const list = document.getElementById('service-list');
             let filtered = servicesData;
             if (filter !== 'all') filtered = servicesData.filter(s => s.status === filter);
-            
+
             list.innerHTML = filtered.map(s => `
                 <div class="service-item">
                     <div>
@@ -580,7 +554,8 @@ HTML = """
         function toggleService(name, action) {
             socket.emit('service_action', {name, action});
         }
-        
+
+        // Network
         function loadNetwork() {
             socket.emit('get_network');
         }
@@ -598,20 +573,21 @@ HTML = """
                     <div class="detail-text" style="margin-top:5px;">IP: ${i.addresses.join(', ') || 'No IP'}</div>
                 </div>
             `).join('');
-            
+
             document.getElementById('connection-list').innerHTML = data.connections.slice(0, 20).map(c => `
                 <div class="process-item">
                     <span>${c.status} | ${c.laddr} → ${c.raddr || 'N/A'} | PID: ${c.pid || 'N/A'}</span>
                 </div>
             `).join('');
-            
+
             document.getElementById('port-list').innerHTML = data.ports.map(p => `
                 <div class="process-item">
                     <span>Port ${p.port} | ${p.protocol} | PID: ${p.pid} | ${p.name}</span>
                 </div>
             `).join('');
         });
-        
+
+        // Files
         function loadFiles(path) {
             currentPath = path;
             socket.emit('get_files', path);
@@ -650,7 +626,8 @@ HTML = """
             socket.emit('write_file', {path: currentFile, content: document.getElementById('file-editor').value});
             closeModal();
         }
-        
+
+        // Logs
         function loadLogs(type) {
             document.querySelectorAll('#tab-logs .tab-btn').forEach(b => b.classList.remove('active'));
             event.target.classList.add('active');
@@ -673,7 +650,8 @@ HTML = """
             logsData = data.lines;
             renderLogs(logsData);
         });
-        
+
+        // System Info
         function loadSystemInfo() {
             socket.emit('get_system_info');
         }
@@ -684,11 +662,215 @@ HTML = """
                     <div class="info-value">${v}</div>
                 </div>
             `).join('');
-            
+
             document.getElementById('sensors-info').innerHTML = data.sensors || 'No sensor data available';
             document.getElementById('battery-info').innerHTML = data.battery || 'No battery detected';
         });
-        
+
+        // Firewall
+        function loadFirewall(type) {
+            document.querySelectorAll('#tab-firewall .tab-btn').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+            socket.emit('get_firewall', type);
+        }
+        socket.on('firewall', (data) => {
+            const list = document.getElementById('firewall-list');
+            if (data.error) {
+                list.innerHTML = `<div class="empty-state"><div class="empty-state-icon">⚠️</div>${data.error}</div>`;
+            } else if (data.lines.length === 0) {
+                list.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🔥</div>No firewall rules found</div>`;
+            } else {
+                list.innerHTML = data.lines.map(l => `<div class="log-line">${escapeHtml(l)}</div>`).join('');
+            }
+        });
+
+        // Cron Manager
+        function loadCron() {
+            socket.emit('get_cron');
+        }
+        socket.on('cron', (data) => {
+            cronData = data;
+            const list = document.getElementById('cron-list');
+            if (data.length === 0) {
+                list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">⏰</div>No cron jobs found</div>';
+            } else {
+                list.innerHTML = data.map((c, i) => `
+                    <div class="cron-item">
+                        <div>
+                            <div style="font-weight:600;">${c.schedule}</div>
+                            <div style="font-size:12px; color:#a6adc8;">${c.command}</div>
+                            <div style="font-size:11px; color:#89b4fa;">${c.user || 'current user'}</div>
+                        </div>
+                        <button class="cron-btn" onclick="removeCron(${i})">Remove</button>
+                    </div>
+                `).join('');
+            }
+        });
+        function showAddCron() {
+            document.getElementById('cron-modal').classList.add('show');
+        }
+        function closeCronModal() {
+            document.getElementById('cron-modal').classList.remove('show');
+        }
+        function addCron() {
+            const schedule = document.getElementById('cron-schedule').value;
+            const command = document.getElementById('cron-command').value;
+            if (!schedule || !command) { alert('Please fill all fields'); return; }
+            socket.emit('add_cron', {schedule, command});
+            closeCronModal();
+        }
+        function removeCron(index) {
+            if (confirm('Remove this cron job?')) socket.emit('remove_cron', index);
+        }
+
+        // Docker Monitor
+        function loadDocker() {
+            socket.emit('get_docker');
+        }
+        socket.on('docker', (data) => {
+            dockerData = data.containers;
+            document.getElementById('docker-total').textContent = data.stats.total;
+            document.getElementById('docker-running').textContent = data.stats.running;
+            document.getElementById('docker-stopped').textContent = data.stats.stopped;
+            document.getElementById('docker-images').textContent = data.stats.images;
+            renderDocker('all');
+        });
+        function renderDocker(filter) {
+            const list = document.getElementById('docker-list');
+            let filtered = dockerData;
+            if (filter !== 'all') filtered = dockerData.filter(c => c.status === filter);
+
+            if (filtered.length === 0) {
+                list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🐳</div>No containers found</div>';
+            } else {
+                list.innerHTML = filtered.map(c => `
+                    <div class="docker-item">
+                        <div>
+                            <div style="font-weight:600;">${c.name}</div>
+                            <div style="font-size:12px; color:#a6adc8;">${c.image} | ${c.ports || 'no ports'}</div>
+                            <div style="font-size:11px; color:#89b4fa;">Created: ${c.created}</div>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <span class="status-badge ${c.status}">${c.status}</span>
+                            <button class="docker-btn ${c.status === 'running' ? 'stop' : ''}" 
+                                    onclick="dockerAction('${c.id}', '${c.status === 'running' ? 'stop' : 'start'}')">
+                                ${c.status === 'running' ? 'Stop' : 'Start'}
+                            </button>
+                            <button class="docker-btn" onclick="dockerAction('${c.id}', 'restart')">Restart</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+        function filterDocker(f) {
+            document.querySelectorAll('#tab-docker .tab-btn').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+            renderDocker(f);
+        }
+        function dockerAction(id, action) {
+            socket.emit('docker_action', {id, action});
+        }
+
+        // SSH Key Manager
+        function loadSSHKeys() {
+            socket.emit('get_ssh_keys');
+        }
+        socket.on('ssh_keys', (data) => {
+            sshData = data;
+            const list = document.getElementById('ssh-list');
+            if (data.length === 0) {
+                list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔑</div>No SSH keys found</div>';
+            } else {
+                list.innerHTML = data.map((k, i) => `
+                    <div class="ssh-item">
+                        <div>
+                            <div style="font-weight:600;">${k.name}</div>
+                            <div style="font-size:12px; color:#a6adc8;">${k.type} | ${k.fingerprint}</div>
+                            <div style="font-size:11px; color:#89b4fa;">Created: ${k.created}</div>
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <button class="ssh-btn" style="background:rgba(137,180,250,0.3);" onclick="copyKey(${i}, 'pub')">Copy Public</button>
+                            <button class="ssh-btn" onclick="deleteKey(${i})">Delete</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        });
+        function showGenerateKey() {
+            document.getElementById('ssh-modal').classList.add('show');
+        }
+        function closeSSHModal() {
+            document.getElementById('ssh-modal').classList.remove('show');
+        }
+        function generateKey() {
+            const name = document.getElementById('ssh-name').value;
+            const type = document.getElementById('ssh-type').value;
+            const comment = document.getElementById('ssh-comment').value;
+            if (!name) { alert('Please enter a key name'); return; }
+            socket.emit('generate_ssh_key', {name, type, comment});
+            closeSSHModal();
+        }
+        function copyKey(index, which) {
+            socket.emit('copy_ssh_key', {index, which});
+        }
+        function deleteKey(index) {
+            if (confirm('Delete this SSH key?')) socket.emit('delete_ssh_key', index);
+        }
+        socket.on('clipboard', (data) => {
+            navigator.clipboard.writeText(data.text).then(() => {
+                alert('Copied to clipboard!');
+            }).catch(() => {
+                alert('Key content: ' + data.text.substring(0, 100) + '...');
+            });
+        });
+
+        // Task Scheduler
+        function loadTasks() {
+            socket.emit('get_tasks');
+        }
+        socket.on('tasks', (data) => {
+            taskData = data;
+            const list = document.getElementById('task-list');
+            if (data.length === 0) {
+                list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📅</div>No scheduled tasks</div>';
+            } else {
+                list.innerHTML = data.map((t, i) => `
+                    <div class="task-item">
+                        <div>
+                            <div style="font-weight:600;">${t.name}</div>
+                            <div style="font-size:12px; color:#a6adc8;">${t.command}</div>
+                            <div style="font-size:11px; color:#89b4fa;">Run at: ${t.run_at} | Status: ${t.status}</div>
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <button class="task-btn" style="background:rgba(137,180,250,0.3);" onclick="runTaskNow(${i})">Run Now</button>
+                            <button class="task-btn" onclick="cancelTask(${i})">Cancel</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        });
+        function showAddTask() {
+            document.getElementById('task-modal').classList.add('show');
+        }
+        function closeTaskModal() {
+            document.getElementById('task-modal').classList.remove('show');
+        }
+        function addTask() {
+            const name = document.getElementById('task-name').value;
+            const command = document.getElementById('task-command').value;
+            const runAt = document.getElementById('task-time').value;
+            if (!name || !command || !runAt) { alert('Please fill all fields'); return; }
+            socket.emit('add_task', {name, command, run_at: runAt});
+            closeTaskModal();
+        }
+        function cancelTask(index) {
+            if (confirm('Cancel this scheduled task?')) socket.emit('cancel_task', index);
+        }
+        function runTaskNow(index) {
+            socket.emit('run_task_now', index);
+        }
+
+        // Terminal
         socket.on('terminal_output', (data) => {
             const term = document.getElementById('terminal');
             if (data.output === '__CLEAR__') { term.innerHTML = ''; return; }
@@ -701,7 +883,7 @@ HTML = """
             term.appendChild(line);
             term.scrollTop = term.scrollHeight;
         });
-        
+
         let recording = false;
         function toggleRecord() {
             recording = !recording;
@@ -731,7 +913,7 @@ HTML = """
             div.textContent = text;
             return div.innerHTML;
         }
-        
+
         document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('terminal-input').focus();
         });
@@ -818,7 +1000,7 @@ def handle_network():
         interfaces = []
         io_counters = psutil.net_io_counters(pernic=True)
         addrs = psutil.net_if_addrs()
-        
+
         for name, io in io_counters.items():
             addr_list = [a.address for a in addrs.get(name, []) if a.family == 2]
             interfaces.append({
@@ -830,7 +1012,7 @@ def handle_network():
                 'dropin': io.dropin,
                 'addresses': addr_list
             })
-        
+
         connections = []
         for conn in psutil.net_connections(kind='inet')[:30]:
             try:
@@ -842,7 +1024,7 @@ def handle_network():
                 })
             except:
                 pass
-        
+
         ports = []
         for conn in psutil.net_connections(kind='inet'):
             if conn.status == 'LISTEN' and conn.laddr:
@@ -856,7 +1038,7 @@ def handle_network():
                     })
                 except:
                     pass
-        
+
         emit('network', {
             'interfaces': interfaces,
             'connections': connections,
@@ -879,7 +1061,7 @@ def handle_files(path):
                     if s < 1024: size = f'{s} B'
                     elif s < 1024*1024: size = f'{s/1024:.1f} KB'
                     else: size = f'{s/(1024*1024):.1f} MB'
-                
+
                 items.append({
                     'name': entry.name,
                     'path': entry.path,
@@ -888,7 +1070,7 @@ def handle_files(path):
                 })
             except PermissionError:
                 continue
-        
+
         items.sort(key=lambda x: (not x['is_dir'], x['name'].lower()))
         emit('files', {'items': items, 'parent': parent})
     except Exception as e:
@@ -921,7 +1103,7 @@ def handle_logs(log_type):
             'kern': ['journalctl', '-n', '100', '--no-pager', '-k'],
             'dmesg': ['dmesg', '-T']
         }
-        
+
         cmd = commands.get(log_type, commands['syslog'])
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
         lines = (result.stdout + result.stderr).strip().split('\n')
@@ -934,7 +1116,7 @@ def handle_system_info():
     try:
         boot_time = psutil.boot_time()
         uptime = time.time() - boot_time
-        
+
         sensors = 'No sensors available'
         try:
             temps = psutil.sensors_temperatures()
@@ -942,7 +1124,7 @@ def handle_system_info():
                 sensors = '<br>'.join([f"{k}: {v[0].current}°C" for k, v in temps.items()])
         except:
             pass
-        
+
         battery = 'No battery'
         try:
             bat = psutil.sensors_battery()
@@ -950,7 +1132,7 @@ def handle_system_info():
                 battery = f"{bat.percent}% {'(Charging)' if bat.power_plugged else '(Discharging)'}"
         except:
             pass
-        
+
         info = {
             'Hostname': platform.node(),
             'OS': f"{platform.system()} {platform.release()}",
@@ -969,6 +1151,310 @@ def handle_system_info():
     except Exception as e:
         emit('system_info', {'Error': str(e)})
 
+# ===== FIREWALL =====
+@socketio.on('get_firewall')
+def handle_firewall(fw_type):
+    try:
+        if fw_type == 'iptables':
+            result = subprocess.run(['sudo', 'iptables', '-L', '-n', '-v'], capture_output=True, text=True, timeout=10)
+        elif fw_type == 'nftables':
+            result = subprocess.run(['sudo', 'nft', 'list', 'ruleset'], capture_output=True, text=True, timeout=10)
+        elif fw_type == 'ufw':
+            result = subprocess.run(['sudo', 'ufw', 'status', 'verbose'], capture_output=True, text=True, timeout=10)
+        else:
+            result = subprocess.run(['sudo', 'iptables', '-L', '-n', '-v'], capture_output=True, text=True, timeout=10)
+
+        lines = (result.stdout + result.stderr).strip().split('\n')
+        emit('firewall', {'lines': lines})
+    except Exception as e:
+        emit('firewall', {'lines': [], 'error': f'Firewall error: {e}'})
+
+# ===== CRON MANAGER =====
+@socketio.on('get_cron')
+def handle_cron():
+    try:
+        result = subprocess.run(['crontab', '-l'], capture_output=True, text=True, timeout=5)
+        lines = result.stdout.strip().split('\n')
+        jobs = []
+        for line in lines:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                parts = line.split()
+                if len(parts) >= 6:
+                    schedule = ' '.join(parts[:5])
+                    command = ' '.join(parts[5:])
+                    jobs.append({'schedule': schedule, 'command': command})
+        emit('cron', jobs)
+    except Exception as e:
+        emit('cron', [])
+
+@socketio.on('add_cron')
+def handle_add_cron(data):
+    try:
+        schedule = data['schedule']
+        command = data['command']
+        entry = f"{schedule} {command}\n"
+
+        # Get existing crontab
+        result = subprocess.run(['crontab', '-l'], capture_output=True, text=True, timeout=5)
+        existing = result.stdout
+
+        # Add new entry
+        new_crontab = existing + entry if existing else entry
+
+        # Write via stdin
+        proc = subprocess.Popen(['crontab', '-'], stdin=subprocess.PIPE, text=True)
+        proc.communicate(input=new_crontab, timeout=5)
+
+        emit('notification', {'title': 'Cron Added', 'body': f'Added: {schedule} {command}'})
+        handle_cron()
+    except Exception as e:
+        emit('notification', {'title': 'Error', 'body': str(e)})
+
+@socketio.on('remove_cron')
+def handle_remove_cron(index):
+    try:
+        result = subprocess.run(['crontab', '-l'], capture_output=True, text=True, timeout=5)
+        lines = result.stdout.strip().split('\n')
+
+        # Filter out comment lines and empty lines to match index
+        job_lines = [l for l in lines if l.strip() and not l.strip().startswith('#')]
+        if 0 <= index < len(job_lines):
+            target = job_lines[index]
+            new_lines = [l for l in lines if l != target]
+            new_crontab = '\n'.join(new_lines) + '\n'
+
+            proc = subprocess.Popen(['crontab', '-'], stdin=subprocess.PIPE, text=True)
+            proc.communicate(input=new_crontab, timeout=5)
+
+            emit('notification', {'title': 'Cron Removed', 'body': f'Removed: {target}'})
+            handle_cron()
+    except Exception as e:
+        emit('notification', {'title': 'Error', 'body': str(e)})
+
+# ===== DOCKER MONITOR =====
+@socketio.on('get_docker')
+def handle_docker():
+    try:
+        # Container stats
+        ps_result = subprocess.run(['docker', 'ps', '-a', '--format', '{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}|{{.Ports}}|{{.CreatedAt}}'], 
+                                 capture_output=True, text=True, timeout=10)
+
+        containers = []
+        running = 0
+        stopped = 0
+        for line in ps_result.stdout.strip().split('\n'):
+            if not line: continue
+            parts = line.split('|')
+            if len(parts) >= 4:
+                status = 'running' if 'Up' in parts[3] else 'exited'
+                if status == 'running': running += 1
+                else: stopped += 1
+                containers.append({
+                    'id': parts[0][:12],
+                    'name': parts[1],
+                    'image': parts[2],
+                    'status': status,
+                    'ports': parts[4] if len(parts) > 4 else '',
+                    'created': parts[5] if len(parts) > 5 else ''
+                })
+
+        # Image count
+        img_result = subprocess.run(['docker', 'images', '-q'], capture_output=True, text=True, timeout=10)
+        images = len([l for l in img_result.stdout.strip().split('\n') if l])
+
+        emit('docker', {
+            'containers': containers,
+            'stats': {'total': len(containers), 'running': running, 'stopped': stopped, 'images': images}
+        })
+    except Exception as e:
+        emit('docker', {'containers': [], 'stats': {'total': 0, 'running': 0, 'stopped': 0, 'images': 0}})
+
+@socketio.on('docker_action')
+def handle_docker_action(data):
+    try:
+        action = data['action']
+        cid = data['id']
+
+        if action == 'start':
+            subprocess.run(['docker', 'start', cid], capture_output=True, text=True, timeout=30)
+        elif action == 'stop':
+            subprocess.run(['docker', 'stop', cid], capture_output=True, text=True, timeout=30)
+        elif action == 'restart':
+            subprocess.run(['docker', 'restart', cid], capture_output=True, text=True, timeout=30)
+        elif action == 'remove':
+            subprocess.run(['docker', 'rm', '-f', cid], capture_output=True, text=True, timeout=30)
+
+        emit('notification', {'title': f'Docker {action}', 'body': f'Container {cid} {action}ed'})
+        handle_docker()
+    except Exception as e:
+        emit('notification', {'title': 'Error', 'body': str(e)})
+
+# ===== SSH KEY MANAGER =====
+SSH_DIR = os.path.expanduser('~/.ssh')
+
+@socketio.on('get_ssh_keys')
+def handle_ssh_keys():
+    try:
+        keys = []
+        if os.path.exists(SSH_DIR):
+            for f in os.listdir(SSH_DIR):
+                if f.endswith('.pub'):
+                    pub_path = os.path.join(SSH_DIR, f)
+                    priv_path = pub_path[:-4]
+
+                    # Get fingerprint
+                    fp_result = subprocess.run(['ssh-keygen', '-lf', pub_path], capture_output=True, text=True, timeout=5)
+                    fp = fp_result.stdout.strip().split()[1] if fp_result.stdout else 'unknown'
+
+                    # Get type
+                    with open(pub_path, 'r') as file:
+                        content = file.read().strip().split()
+                        key_type = content[0] if content else 'unknown'
+
+                    stat = os.stat(pub_path)
+                    keys.append({
+                        'name': f,
+                        'type': key_type,
+                        'fingerprint': fp,
+                        'created': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M')
+                    })
+        emit('ssh_keys', keys)
+    except Exception as e:
+        emit('ssh_keys', [])
+
+@socketio.on('generate_ssh_key')
+def handle_generate_ssh_key(data):
+    try:
+        name = data['name']
+        key_type = data.get('type', 'rsa')
+        comment = data.get('comment', '')
+
+        os.makedirs(SSH_DIR, exist_ok=True)
+
+        key_path = os.path.join(SSH_DIR, name)
+
+        cmd = ['ssh-keygen', '-t', key_type, '-f', key_path, '-N', '', '-C', comment or '']
+        subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+        emit('notification', {'title': 'SSH Key Generated', 'body': f'Key saved to {key_path}'})
+        handle_ssh_keys()
+    except Exception as e:
+        emit('notification', {'title': 'Error', 'body': str(e)})
+
+@socketio.on('copy_ssh_key')
+def handle_copy_ssh_key(data):
+    try:
+        index = data['index']
+        which = data.get('which', 'pub')
+
+        keys = []
+        if os.path.exists(SSH_DIR):
+            for f in sorted(os.listdir(SSH_DIR)):
+                if f.endswith('.pub'):
+                    keys.append(f)
+
+        if 0 <= index < len(keys):
+            key_file = keys[index]
+            if which == 'pub':
+                with open(os.path.join(SSH_DIR, key_file), 'r') as f:
+                    content = f.read()
+            else:
+                priv_file = key_file[:-4]
+                with open(os.path.join(SSH_DIR, priv_file), 'r') as f:
+                    content = f.read()
+            emit('clipboard', {'text': content})
+    except Exception as e:
+        emit('notification', {'title': 'Error', 'body': str(e)})
+
+@socketio.on('delete_ssh_key')
+def handle_delete_ssh_key(index):
+    try:
+        keys = []
+        if os.path.exists(SSH_DIR):
+            for f in sorted(os.listdir(SSH_DIR)):
+                if f.endswith('.pub'):
+                    keys.append(f)
+
+        if 0 <= index < len(keys):
+            key_file = keys[index]
+            priv_file = key_file[:-4]
+
+            pub_path = os.path.join(SSH_DIR, key_file)
+            priv_path = os.path.join(SSH_DIR, priv_file)
+
+            if os.path.exists(pub_path): os.remove(pub_path)
+            if os.path.exists(priv_path): os.remove(priv_path)
+
+            emit('notification', {'title': 'SSH Key Deleted', 'body': f'Deleted {key_file}'})
+            handle_ssh_keys()
+    except Exception as e:
+        emit('notification', {'title': 'Error', 'body': str(e)})
+
+# ===== TASK SCHEDULER (using at) =====
+scheduled_tasks = []
+
+@socketio.on('get_tasks')
+def handle_tasks():
+    try:
+        # Also check system at queue
+        result = subprocess.run(['atq'], capture_output=True, text=True, timeout=5)
+        at_jobs = []
+        for line in result.stdout.strip().split('\n'):
+            if line:
+                parts = line.split()
+                if len(parts) >= 2:
+                    job_id = parts[0]
+                    at_jobs.append({'id': job_id, 'raw': line})
+
+        emit('tasks', scheduled_tasks)
+    except Exception as e:
+        emit('tasks', scheduled_tasks)
+
+@socketio.on('add_task')
+def handle_add_task(data):
+    try:
+        name = data['name']
+        command = data['command']
+        run_at = data['run_at']
+
+        scheduled_tasks.append({
+            'name': name,
+            'command': command,
+            'run_at': run_at,
+            'status': 'pending',
+            'created': datetime.now().strftime('%Y-%m-%d %H:%M')
+        })
+
+        emit('notification', {'title': 'Task Scheduled', 'body': f'{name} at {run_at}'})
+        handle_tasks()
+    except Exception as e:
+        emit('notification', {'title': 'Error', 'body': str(e)})
+
+@socketio.on('cancel_task')
+def handle_cancel_task(index):
+    try:
+        if 0 <= index < len(scheduled_tasks):
+            task = scheduled_tasks.pop(index)
+            emit('notification', {'title': 'Task Cancelled', 'body': f'Cancelled {task["name"]}'})
+            handle_tasks()
+    except Exception as e:
+        emit('notification', {'title': 'Error', 'body': str(e)})
+
+@socketio.on('run_task_now')
+def handle_run_task_now(index):
+    try:
+        if 0 <= index < len(scheduled_tasks):
+            task = scheduled_tasks[index]
+            result = subprocess.run(task['command'], shell=True, capture_output=True, text=True, timeout=60)
+            emit('notification', {
+                'title': f'Task Executed: {task["name"]}',
+                'body': f'Exit code: {result.returncode}\n{result.stdout[:200]}'
+            })
+    except Exception as e:
+        emit('notification', {'title': 'Error', 'body': str(e)})
+
+# ===== TERMINAL =====
 @socketio.on('terminal_command')
 def handle_terminal(cmd):
     allowed = ['ls', 'pwd', 'whoami', 'uname', 'date', 'uptime', 'ps', 'df', 'free', 'echo', 'cat', 'head', 'tail', 'wc', 'help', 'clear', 'mkdir', 'touch', 'rm', 'cp', 'mv', 'find', 'grep', 'awk', 'sed', 'sort', 'uniq', 'curl', 'wget', 'ping', 'netstat', 'ss', 'ip', 'ifconfig', 'route', 'traceroute', 'nslookup', 'dig', 'top', 'htop', 'vmstat', 'iostat', 'mpstat', 'sar', 'lsof', 'fuser', 'killall', 'pkill', 'pgrep', 'nice', 'renice', 'chown', 'chmod', 'stat', 'file', 'md5sum', 'sha256sum', 'base64', 'tar', 'gzip', 'gunzip', 'zip', 'unzip', 'rsync', 'scp', 'ssh', 'git', 'python3', 'python', 'pip', 'node', 'npm', 'npx', 'yarn', 'docker', 'docker-compose', 'kubectl', 'helm', 'terraform', 'ansible', 'vagrant', 'make', 'gcc', 'g++', 'go', 'rustc', 'javac', 'java', 'mvn', 'gradle', 'bundle', 'gem', 'ruby', 'perl', 'php', 'composer', 'lua', 'tcl', 'sqlite3', 'mysql', 'psql', 'mongo', 'redis-cli', 'memcached', 'nginx', 'apache2', 'httpd', 'systemctl', 'service', 'journalctl', 'dmesg', 'sysctl', 'modprobe', 'lsmod', 'insmod', 'rmmod', 'depmod', 'update-rc.d', 'chkconfig', 'crontab', 'at', 'batch', 'sleep', 'watch', 'timeout', 'nohup', 'disown', 'jobs', 'fg', 'bg', 'kill', 'xargs', 'parallel', 'tee', 'script', 'screen', 'tmux', 'expect', 'ssh-keygen', 'ssh-agent', 'ssh-add', 'sftp', 'ftp', 'smbclient', 'mount', 'umount', 'fdisk', 'parted', 'mkfs', 'fsck', 'blkid', 'lsblk', 'ncdu', 'tree', 'locate', 'updatedb', 'which', 'whereis', 'type', 'alias', 'export', 'source', 'eval', 'exec', 'bash', 'sh', 'zsh', 'fish', 'csh', 'tcsh', 'dash', 'ksh', 'mksh', 'yash', 'busybox', 'env', 'printenv', 'set', 'unset', 'readonly', 'declare', 'typeset', 'local', 'function', 'return', 'exit', 'true', 'false', 'test', '[', '[[', ']]', ']', 'echo', 'printf', 'read', 'readarray', 'mapfile', 'select', 'case', 'esac', 'if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'until', 'do', 'done', 'in', 'break', 'continue', 'shift', 'getopts', 'source', '.', 'trap', 'wait', 'caller', 'command', 'builtin', 'enable', 'disable', 'help', 'history', 'fc', 'bg', 'fg', 'jobs', 'disown', 'suspend', 'kill', 'wait', 'umask', 'ulimit', 'times', 'pwd', 'cd', 'pushd', 'popd', 'dirs', 'echo', 'printf', 'read', 'readonly', 'set', 'shift', 'shopt', 'source', 'suspend', 'test', 'time', 'times', 'trap', 'true', 'type', 'typeset', 'ulimit', 'umask', 'unalias', 'unset', 'alias', 'bind', 'builtin', 'caller', 'command', 'declare', 'echo', 'enable', 'eval', 'exec', 'exit', 'export', 'false', 'fc', 'fg', 'getopts', 'hash', 'help', 'history', 'jobs', 'kill', 'let', 'local', 'logout', 'mapfile', 'popd', 'printf', 'pushd', 'pwd', 'read', 'readarray', 'readonly', 'return', 'set', 'shift', 'shopt', 'source', 'suspend', 'test', 'time', 'times', 'trap', 'true', 'type', 'typeset', 'ulimit', 'umask', 'unalias', 'unset', 'wait']
@@ -992,10 +1478,11 @@ def handle_terminal(cmd):
     except Exception as e:
         emit('terminal_output', {'output': str(e), 'error': True})
 
+# ===== STATS EMITTER =====
 def emit_stats():
     last_net = psutil.net_io_counters()
     boot_time = psutil.boot_time()
-    
+
     while True:
         gevent.sleep(1)
         try:
@@ -1003,7 +1490,7 @@ def emit_stats():
             ram = psutil.virtual_memory()
             disk = psutil.disk_usage('/')
             uptime = time.time() - boot_time
-            
+
             socketio.emit('stats', {
                 'cpu': round(psutil.cpu_percent(), 1),
                 'ram': round(ram.percent, 1),
@@ -1026,3 +1513,4 @@ gevent.spawn(emit_stats)
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+
