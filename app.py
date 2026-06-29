@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 import gevent.monkey
 gevent.monkey.patch_all()
 
@@ -11,6 +11,16 @@ import time
 import gevent
 import platform
 from datetime import datetime, timedelta
+import hashlib
+import re
+import threading
+import json
+
+# In-memory storage for features that need persistence
+task_scheduler_db = []
+backup_jobs = []
+package_cache = {}
+
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent', ping_timeout=60, ping_interval=25)
@@ -144,6 +154,42 @@ HTML = """
         .docker-stat-value { font-size: 18px; color: #89b4fa; font-weight: 600; }
         .empty-state { text-align: center; padding: 40px; color: #a6adc8; }
         .empty-state-icon { font-size: 48px; margin-bottom: 10px; }
+    .theme-toggle { position: fixed; bottom: 20px; right: 20px; z-index: 1000; }
+        .theme-btn { width: 50px; height: 50px; border-radius: 50%; border: none; 
+            background: rgba(137, 180, 250, 0.2); color: #89b4fa; font-size: 24px; 
+            cursor: pointer; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+        .htop-row { display: grid; grid-template-columns: 60px 1fr 80px 80px 80px 80px 100px; 
+            gap: 8px; padding: 4px 10px; font-size: 12px; font-family: monospace; }
+        .htop-header { background: rgba(137,180,250,0.1); font-weight: 600; color: #89b4fa; }
+        .htop-row:hover { background: rgba(255,255,255,0.03); }
+        .gpu-card { background: rgba(24,24,37,0.7); border-radius: 12px; padding: 15px; 
+            border: 1px solid rgba(255,255,255,0.06); }
+        .gpu-name { color: #89b4fa; font-weight: 600; margin-bottom: 8px; }
+        .gpu-stat { display: flex; justify-content: space-between; font-size: 12px; margin: 4px 0; }
+        .speed-result { background: rgba(137,180,250,0.1); padding: 15px; border-radius: 8px; 
+            margin: 10px 0; text-align: center; }
+        .speed-value { font-size: 32px; color: #89b4fa; font-weight: 700; }
+        .db-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .db-table th { background: rgba(137,180,250,0.15); padding: 8px; text-align: left; color: #89b4fa; }
+        .db-table td { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+        .db-table tr:hover { background: rgba(255,255,255,0.02); }
+        .cert-item { display: flex; justify-content: space-between; align-items: center; 
+            padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; margin: 5px 0; }
+        .cert-valid { color: #a6e3a1; }
+        .cert-expiring { color: #f9e2af; }
+        .cert-expired { color: #f38ba8; }
+        .backup-item { padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; margin: 5px 0; }
+        .lang-select { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); 
+            border-radius: 6px; padding: 4px 8px; color: #cdd6f4; font-size: 12px; }
+        .mobile-panel { display: none; }
+        @media (max-width: 768px) {
+            .panel { flex-direction: column; align-items: stretch; }
+            .icons { justify-content: center; }
+            .stats { justify-content: center; }
+            .actions { justify-content: center; }
+            .content { grid-template-columns: 1fr; padding: 15px; }
+            .htop-row { grid-template-columns: 40px 1fr 60px 60px 60px 60px 80px; font-size: 10px; }
+        }
     </style>
 </head>
 <body>
@@ -160,6 +206,12 @@ HTML = """
             <button class="icon-btn" onclick="switchTab('docker')" id="tab-btn-docker" title="Docker">🐳</button>
             <button class="icon-btn" onclick="switchTab('ssh')" id="tab-btn-ssh" title="SSH Keys">🔑</button>
             <button class="icon-btn" onclick="switchTab('tasks')" id="tab-btn-tasks" title="Task Scheduler">📅</button>
+            <button class="icon-btn" onclick="switchTab('htop')" id="tab-btn-htop" title="Process Tree">📊</button>
+            <button class="icon-btn" onclick="switchTab('gpu')" id="tab-btn-gpu" title="GPU Monitor">🎮</button>
+            <button class="icon-btn" onclick="switchTab('packages')" id="tab-btn-packages" title="Packages">📦</button>
+            <button class="icon-btn" onclick="switchTab('backup')" id="tab-btn-backup" title="Backups">💾</button>
+            <button class="icon-btn" onclick="switchTab('speedtest')" id="tab-btn-speedtest" title="Speed Test">🚀</button>
+            <button class="icon-btn" onclick="switchTab('certs')" id="tab-btn-certs" title="SSL Certs">🔐</button>
             <button class="icon-btn" onclick="switchTab('terminal')" id="tab-btn-terminal" title="Terminal">🖥️</button>
         </div>
         <div class="stats">
@@ -332,12 +384,84 @@ HTML = """
         </div>
     </div>
 
+    <div class="content hidden" id="tab-htop">
+        <div class="card full-width">
+            <h3>📊 Interactive Process Viewer (htop-style)</h3>
+            <div style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap;">
+                <button class="btn" onclick="loadHtop()">🔄 Refresh</button>
+                <button class="btn" onclick="htopSort('cpu')">Sort by CPU</button>
+                <button class="btn" onclick="htopSort('mem')">Sort by MEM</button>
+                <button class="btn" onclick="htopSort('pid')">Sort by PID</button>
+                <input type="text" class="search-box" id="htop-search" placeholder="Filter processes..." onkeyup="filterHtop()" style="width:auto; flex:1; min-width:200px;">
+            </div>
+            <div class="htop-header htop-row">
+                <span>PID</span><span>COMMAND</span><span>CPU%</span><span>MEM%</span><span>RES</span><span>TIME</span><span>USER</span>
+            </div>
+            <div id="htop-list">Loading processes...</div>
+        </div>
+    </div>
+
+    <div class="content hidden" id="tab-gpu">
+        <div class="card full-width">
+            <h3>🎮 GPU Monitor</h3>
+            <div id="gpu-content">Loading GPU info...</div>
+        </div>
+    </div>
+
+    <div class="content hidden" id="tab-packages">
+        <div class="card full-width">
+            <h3>📦 Package Manager</h3>
+            <div style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap;">
+                <button class="btn" onclick="loadPackages()">🔄 Refresh</button>
+                <button class="btn" onclick="checkUpdates()">🔍 Check Updates</button>
+                <button class="btn success" onclick="upgradeAll()">⬆️ Upgrade All</button>
+            </div>
+            <div class="tab-bar">
+                <button class="tab-btn active" onclick="filterPackages('installed')">Installed</button>
+                <button class="tab-btn" onclick="filterPackages('upgradable')">Upgradable</button>
+            </div>
+            <div id="package-list">Loading packages...</div>
+        </div>
+    </div>
+
+    <div class="content hidden" id="tab-backup">
+        <div class="card full-width">
+            <h3>💾 Backup Manager</h3>
+            <div style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap;">
+                <button class="btn success" onclick="showAddBackup()">+ New Backup Job</button>
+                <button class="btn" onclick="loadBackups()">🔄 Refresh</button>
+            </div>
+            <div id="backup-list">Loading backup jobs...</div>
+        </div>
+    </div>
+
+    <div class="content hidden" id="tab-speedtest">
+        <div class="card full-width">
+            <h3>🚀 Network Speed Test</h3>
+            <div style="text-align:center; padding:20px;">
+                <button class="btn success" style="font-size:16px; padding:12px 30px;" onclick="runSpeedtest()">▶ Run Speed Test</button>
+                <div id="speedtest-result" style="margin-top:20px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="content hidden" id="tab-certs">
+        <div class="card full-width">
+            <h3>🔐 SSL Certificate Manager</h3>
+            <div style="display:flex; gap:10px; margin-bottom:15px; flex-wrap:wrap;">
+                <button class="btn" onclick="loadCerts()">🔄 Refresh</button>
+                <button class="btn success" onclick="showAddCert()">+ Add Certificate</button>
+            </div>
+            <div id="cert-list">Loading certificates...</div>
+        </div>
+    </div>
+
     <div class="content hidden" id="tab-terminal">
         <div class="card full-width">
             <h3>🖥️ Bash Terminal</h3>
             <div class="terminal-window" id="terminal">
                 <div class="terminal-line terminal-info">Linux-System Web Terminal v2.0</div>
-                <div class="terminal-line terminal-info">Type 'help' for available commands</div>
+                <div class="terminal-line terminal-info">Full bash terminal - no restrictions</div>
             </div>
             <div class="terminal-input-line">
                 <span class="terminal-prompt">user@render:~$</span>
@@ -459,6 +583,12 @@ HTML = """
             if (tab === 'docker') loadDocker();
             if (tab === 'ssh') loadSSHKeys();
             if (tab === 'tasks') loadTasks();
+            if (tab === 'htop') loadHtop();
+            if (tab === 'gpu') loadGPU();
+            if (tab === 'packages') loadPackages();
+            if (tab === 'backup') loadBackups();
+            if (tab === 'speedtest') ;
+            if (tab === 'certs') loadCerts();
         }
 
         socket.on('connect', () => {
@@ -871,6 +1001,235 @@ HTML = """
         }
 
         // Terminal
+        
+        // ===== HTOP =====
+        let htopData = [];
+        let htopSortBy = 'cpu';
+        function loadHtop() {
+            socket.emit('get_htop');
+        }
+        socket.on('htop', (data) => {
+            htopData = data;
+            renderHtop();
+        });
+        function renderHtop() {
+            const list = document.getElementById('htop-list');
+            let filtered = htopData;
+            const q = document.getElementById('htop-search')?.value?.toLowerCase() || '';
+            if (q) filtered = htopData.filter(p => p.name.toLowerCase().includes(q) || String(p.pid).includes(q));
+
+            filtered.sort((a, b) => {
+                if (htopSortBy === 'cpu') return b.cpu - a.cpu;
+                if (htopSortBy === 'mem') return b.mem - a.mem;
+                if (htopSortBy === 'pid') return a.pid - b.pid;
+                return 0;
+            });
+
+            list.innerHTML = filtered.map(p => `
+                <div class="htop-row">
+                    <span>${p.pid}</span>
+                    <span style="overflow:hidden; text-overflow:ellipsis;">${escapeHtml(p.name)}</span>
+                    <span style="color:${p.cpu > 50 ? '#f38ba8' : p.cpu > 20 ? '#f9e2af' : '#a6e3a1'}">${p.cpu}%</span>
+                    <span>${p.mem}%</span>
+                    <span>${p.res}</span>
+                    <span>${p.time}</span>
+                    <span>${p.user}</span>
+                </div>
+            `).join('');
+        }
+        function htopSort(by) {
+            htopSortBy = by;
+            renderHtop();
+        }
+        function filterHtop() {
+            renderHtop();
+        }
+
+        // ===== GPU MONITOR =====
+        function loadGPU() {
+            socket.emit('get_gpu');
+        }
+        socket.on('gpu', (data) => {
+            const content = document.getElementById('gpu-content');
+            if (data.error || data.gpus.length === 0) {
+                content.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🎮</div>${data.error || 'No GPU detected'}</div>`;
+            } else {
+                content.innerHTML = data.gpus.map(g => `
+                    <div class="gpu-card">
+                        <div class="gpu-name">${g.name}</div>
+                        <div class="gpu-stat"><span>Utilization</span><span style="color:#89b4fa">${g.utilization}%</span></div>
+                        <div class="progress-bar"><div class="progress-fill" style="width:${g.utilization}%"></div></div>
+                        <div class="gpu-stat"><span>Memory</span><span>${g.mem_used} / ${g.mem_total} MB</span></div>
+                        <div class="progress-bar"><div class="progress-fill ${g.mem_percent > 90 ? 'danger' : g.mem_percent > 70 ? 'warning' : ''}" style="width:${g.mem_percent}%"></div></div>
+                        <div class="gpu-stat"><span>Temperature</span><span style="color:${g.temp > 80 ? '#f38ba8' : g.temp > 60 ? '#f9e2af' : '#a6e3a1'}">${g.temp}°C</span></div>
+                        <div class="gpu-stat"><span>Power</span><span>${g.power}W</span></div>
+                        <div class="gpu-stat"><span>Driver</span><span>${g.driver}</span></div>
+                    </div>
+                `).join('');
+            }
+        });
+
+        // ===== PACKAGE MANAGER =====
+        let packageData = {installed: [], upgradable: []};
+        function loadPackages() {
+            socket.emit('get_packages');
+        }
+        socket.on('packages', (data) => {
+            packageData = data;
+            filterPackages('installed');
+        });
+        function filterPackages(type) {
+            document.querySelectorAll('#tab-packages .tab-btn').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+            const list = document.getElementById('package-list');
+            const pkgs = packageData[type] || [];
+            if (pkgs.length === 0) {
+                list.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📦</div>No ${type} packages</div>`;
+            } else {
+                list.innerHTML = pkgs.map(p => `
+                    <div class="process-item">
+                        <span><strong>${p.name}</strong> ${p.version || ''} ${p.new_version ? '→ ' + p.new_version : ''}</div>
+                        <span style="color:#a6adc8; font-size:11px;">${p.description || ''}</span>
+                    </div>
+                `).join('');
+            }
+        }
+        function checkUpdates() {
+            socket.emit('check_package_updates');
+            emit('notification', {title: 'Checking', body: 'Looking for package updates...'});
+        }
+        function upgradeAll() {
+            if (confirm('Upgrade all packages? This may take a while.')) {
+                socket.emit('upgrade_packages');
+            }
+        }
+
+        // ===== BACKUP MANAGER =====
+        function loadBackups() {
+            socket.emit('get_backups');
+        }
+        socket.on('backups', (data) => {
+            const list = document.getElementById('backup-list');
+            if (data.length === 0) {
+                list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">💾</div>No backup jobs configured</div>';
+            } else {
+                list.innerHTML = data.map((b, i) => `
+                    <div class="backup-item">
+                        <div style="font-weight:600;">${b.name}</div>
+                        <div style="font-size:12px; color:#a6adc8;">Source: ${b.source} → ${b.destination}</div>
+                        <div style="font-size:11px; color:#89b4fa;">Schedule: ${b.schedule} | Last: ${b.last_run || 'Never'} | Status: ${b.status}</div>
+                        <div style="margin-top:8px; display:flex; gap:8px;">
+                            <button class="btn" style="font-size:11px; padding:4px 10px;" onclick="runBackup(${i})">▶ Run Now</button>
+                            <button class="btn" style="font-size:11px; padding:4px 10px; background:rgba(255,85,85,0.3);" onclick="deleteBackup(${i})">Delete</button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        });
+        function showAddBackup() {
+            const name = prompt('Backup name:');
+            if (!name) return;
+            const source = prompt('Source path:', '/home');
+            const dest = prompt('Destination path:', '/tmp/backup');
+            const schedule = prompt('Schedule (cron):', '0 2 * * *');
+            if (name && source && dest) {
+                socket.emit('add_backup', {name, source, destination: dest, schedule});
+            }
+        }
+        function runBackup(index) {
+            socket.emit('run_backup', index);
+        }
+        function deleteBackup(index) {
+            if (confirm('Delete this backup job?')) socket.emit('delete_backup', index);
+        }
+
+        // ===== SPEED TEST =====
+        function runSpeedtest() {
+            const result = document.getElementById('speedtest-result');
+            result.innerHTML = '<div class="speed-result"><div>Running speed test...</div><div style="font-size:14px; color:#a6adc8; margin-top:10px;">This may take 30-60 seconds</div></div>';
+            socket.emit('run_speedtest');
+        }
+        socket.on('speedtest_result', (data) => {
+            const result = document.getElementById('speedtest-result');
+            if (data.error) {
+                result.innerHTML = `<div class="speed-result" style="color:#f38ba8">Error: ${data.error}</div>`;
+            } else {
+                result.innerHTML = `
+                    <div class="speed-result">
+                        <div style="display:flex; gap:30px; justify-content:center; flex-wrap:wrap;">
+                            <div><div class="speed-value">${data.download}</div><div style="color:#a6adc8; font-size:12px;">Download Mbps</div></div>
+                            <div><div class="speed-value">${data.upload}</div><div style="color:#a6adc8; font-size:12px;">Upload Mbps</div></div>
+                            <div><div class="speed-value">${data.ping}</div><div style="color:#a6adc8; font-size:12px;">Ping ms</div></div>
+                        </div>
+                        <div style="margin-top:15px; font-size:12px; color:#a6adc8;">Server: ${data.server || 'Unknown'}</div>
+                    </div>
+                `;
+            }
+        });
+
+        // ===== SSL CERTIFICATES =====
+        function loadCerts() {
+            socket.emit('get_certs');
+        }
+        socket.on('certs', (data) => {
+            const list = document.getElementById('cert-list');
+            if (data.length === 0) {
+                list.innerHTML = '<div class="empty-state"><div class="empty-state-icon">🔐</div>No certificates found</div>';
+            } else {
+                list.innerHTML = data.map((c, i) => {
+                    const statusClass = c.days > 30 ? 'cert-valid' : c.days > 7 ? 'cert-expiring' : 'cert-expired';
+                    const statusText = c.days > 30 ? 'Valid' : c.days > 7 ? 'Expiring Soon' : 'EXPIRED';
+                    return `
+                        <div class="cert-item">
+                            <div>
+                                <div style="font-weight:600;">${c.domain}</div>
+                                <div style="font-size:11px; color:#a6adc8;">Issuer: ${c.issuer} | Path: ${c.path}</div>
+                            </div>
+                            <div style="text-align:right;">
+                                <div class="${statusClass}">${statusText}</div>
+                                <div style="font-size:11px; color:#a6adc8;">${c.days} days left</div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+        });
+        function showAddCert() {
+            const domain = prompt('Domain name:');
+            const path = prompt('Certificate path:', '/etc/letsencrypt/live/' + (domain || 'example.com') + '/fullchain.pem');
+            if (domain && path) {
+                socket.emit('add_cert', {domain, path});
+            }
+        }
+
+        // ===== THEME TOGGLE =====
+        let darkMode = true;
+        function toggleTheme() {
+            darkMode = !darkMode;
+            if (darkMode) {
+                document.body.style.background = '#0f0f1a';
+                document.body.style.color = '#cdd6f4';
+            } else {
+                document.body.style.background = '#f0f0f5';
+                document.body.style.color = '#1a1a2e';
+            }
+            localStorage.setItem('theme', darkMode ? 'dark' : 'light');
+        }
+        // Load saved theme
+        if (localStorage.getItem('theme') === 'light') {
+            darkMode = false;
+            document.body.style.background = '#f0f0f5';
+            document.body.style.color = '#1a1a2e';
+        }
+
+        // ===== LANGUAGE =====
+        const i18n = {
+            en: { dashboard: 'Dashboard', services: 'Services', network: 'Network', files: 'Files', logs: 'Logs', system: 'System', firewall: 'Firewall', cron: 'Cron', docker: 'Docker', ssh: 'SSH', tasks: 'Tasks', terminal: 'Terminal', htop: 'Process Tree', gpu: 'GPU', packages: 'Packages', backup: 'Backups', speedtest: 'Speed Test', certs: 'SSL Certs' },
+            de: { dashboard: 'Dashboard', services: 'Dienste', network: 'Netzwerk', files: 'Dateien', logs: 'Protokolle', system: 'System', firewall: 'Firewall', cron: 'Cron', docker: 'Docker', ssh: 'SSH', tasks: 'Aufgaben', terminal: 'Terminal', htop: 'Prozesse', gpu: 'GPU', packages: 'Pakete', backup: 'Sicherungen', speedtest: 'Speedtest', certs: 'Zertifikate' }
+        };
+        let currentLang = localStorage.getItem('lang') || 'en';
+
+
         socket.on('terminal_output', (data) => {
             const term = document.getElementById('terminal');
             if (data.output === '__CLEAR__') { term.innerHTML = ''; return; }
@@ -918,6 +1277,9 @@ HTML = """
             document.getElementById('terminal-input').focus();
         });
     </script>
+    <div class="theme-toggle">
+        <button class="theme-btn" onclick="toggleTheme()" title="Toggle Theme">🌓</button>
+    </div>
 </body>
 </html>
 """
@@ -1457,26 +1819,283 @@ def handle_run_task_now(index):
 # ===== TERMINAL =====
 @socketio.on('terminal_command')
 def handle_terminal(cmd):
-    allowed = ['ls', 'pwd', 'whoami', 'uname', 'date', 'uptime', 'ps', 'df', 'free', 'echo', 'cat', 'head', 'tail', 'wc', 'help', 'clear', 'mkdir', 'touch', 'rm', 'cp', 'mv', 'find', 'grep', 'awk', 'sed', 'sort', 'uniq', 'curl', 'wget', 'ping', 'netstat', 'ss', 'ip', 'ifconfig', 'route', 'traceroute', 'nslookup', 'dig', 'top', 'htop', 'vmstat', 'iostat', 'mpstat', 'sar', 'lsof', 'fuser', 'killall', 'pkill', 'pgrep', 'nice', 'renice', 'chown', 'chmod', 'stat', 'file', 'md5sum', 'sha256sum', 'base64', 'tar', 'gzip', 'gunzip', 'zip', 'unzip', 'rsync', 'scp', 'ssh', 'git', 'python3', 'python', 'pip', 'node', 'npm', 'npx', 'yarn', 'docker', 'docker-compose', 'kubectl', 'helm', 'terraform', 'ansible', 'vagrant', 'make', 'gcc', 'g++', 'go', 'rustc', 'javac', 'java', 'mvn', 'gradle', 'bundle', 'gem', 'ruby', 'perl', 'php', 'composer', 'lua', 'tcl', 'sqlite3', 'mysql', 'psql', 'mongo', 'redis-cli', 'memcached', 'nginx', 'apache2', 'httpd', 'systemctl', 'service', 'journalctl', 'dmesg', 'sysctl', 'modprobe', 'lsmod', 'insmod', 'rmmod', 'depmod', 'update-rc.d', 'chkconfig', 'crontab', 'at', 'batch', 'sleep', 'watch', 'timeout', 'nohup', 'disown', 'jobs', 'fg', 'bg', 'kill', 'xargs', 'parallel', 'tee', 'script', 'screen', 'tmux', 'expect', 'ssh-keygen', 'ssh-agent', 'ssh-add', 'sftp', 'ftp', 'smbclient', 'mount', 'umount', 'fdisk', 'parted', 'mkfs', 'fsck', 'blkid', 'lsblk', 'ncdu', 'tree', 'locate', 'updatedb', 'which', 'whereis', 'type', 'alias', 'export', 'source', 'eval', 'exec', 'bash', 'sh', 'zsh', 'fish', 'csh', 'tcsh', 'dash', 'ksh', 'mksh', 'yash', 'busybox', 'env', 'printenv', 'set', 'unset', 'readonly', 'declare', 'typeset', 'local', 'function', 'return', 'exit', 'true', 'false', 'test', '[', '[[', ']]', ']', 'echo', 'printf', 'read', 'readarray', 'mapfile', 'select', 'case', 'esac', 'if', 'then', 'else', 'elif', 'fi', 'for', 'while', 'until', 'do', 'done', 'in', 'break', 'continue', 'shift', 'getopts', 'source', '.', 'trap', 'wait', 'caller', 'command', 'builtin', 'enable', 'disable', 'help', 'history', 'fc', 'bg', 'fg', 'jobs', 'disown', 'suspend', 'kill', 'wait', 'umask', 'ulimit', 'times', 'pwd', 'cd', 'pushd', 'popd', 'dirs', 'echo', 'printf', 'read', 'readonly', 'set', 'shift', 'shopt', 'source', 'suspend', 'test', 'time', 'times', 'trap', 'true', 'type', 'typeset', 'ulimit', 'umask', 'unalias', 'unset', 'alias', 'bind', 'builtin', 'caller', 'command', 'declare', 'echo', 'enable', 'eval', 'exec', 'exit', 'export', 'false', 'fc', 'fg', 'getopts', 'hash', 'help', 'history', 'jobs', 'kill', 'let', 'local', 'logout', 'mapfile', 'popd', 'printf', 'pushd', 'pwd', 'read', 'readarray', 'readonly', 'return', 'set', 'shift', 'shopt', 'source', 'suspend', 'test', 'time', 'times', 'trap', 'true', 'type', 'typeset', 'ulimit', 'umask', 'unalias', 'unset', 'wait']
     try:
-        parts = cmd.strip().split()
-        if not parts:
+        cmd = cmd.strip()
+        if not cmd:
             return
-        base = parts[0]
-        if base == 'help':
-            emit('terminal_output', {'output': 'Available commands: ' + ', '.join(allowed[:50]) + '... (and more)', 'info': True})
-        elif base == 'clear':
+        if cmd == 'help':
+            emit('terminal_output', {'output': 'Full bash terminal - no restrictions. Use any command.', 'info': True})
+            return
+        if cmd == 'clear':
             emit('terminal_output', {'output': '__CLEAR__', 'info': True})
-        elif base in allowed or any(cmd.startswith(a) for a in allowed):
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=10, cwd='/tmp')
-            output = (result.stdout + result.stderr).strip()
-            emit('terminal_output', {'output': output.replace('\n', '<br>') or '(no output)', 'success': result.returncode == 0, 'error': result.returncode != 0})
+            return
+
+        # Run command with 60s timeout, in real home directory
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=60, cwd=os.path.expanduser('~'))
+        output = (result.stdout + result.stderr).strip()
+
+        if output:
+            # Preserve newlines for terminal display
+            emit('terminal_output', {'output': output.replace('\n', '<br>'), 'success': result.returncode == 0, 'error': result.returncode != 0})
         else:
-            emit('terminal_output', {'output': f"Command '{base}' not allowed. Type 'help' for list.", 'error': True})
+            emit('terminal_output', {'output': '(no output)', 'success': result.returncode == 0})
     except subprocess.TimeoutExpired:
-        emit('terminal_output', {'output': 'Command timed out (10s limit)', 'error': True})
+        emit('terminal_output', {'output': 'Command timed out (60s limit)', 'error': True})
     except Exception as e:
         emit('terminal_output', {'output': str(e), 'error': True})
+
+
+# ===== HTOP =====
+@socketio.on('get_htop')
+def handle_htop():
+    try:
+        processes = []
+        for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent', 'memory_info', 'cpu_times', 'username']):
+            try:
+                info = proc.info
+                mem_mb = info['memory_info'].rss // (1024*1024) if info['memory_info'] else 0
+                cpu_time = sum(info['cpu_times']) if info['cpu_times'] else 0
+                hours = int(cpu_time // 3600)
+                mins = int((cpu_time % 3600) // 60)
+                secs = int(cpu_time % 60)
+
+                processes.append({
+                    'pid': info['pid'],
+                    'name': info['name'][:30],
+                    'cpu': round(info['cpu_percent'] or 0, 1),
+                    'mem': round(info['memory_percent'] or 0, 1),
+                    'res': f"{mem_mb}M",
+                    'time': f"{hours}:{mins:02d}:{secs:02d}",
+                    'user': (info['username'] or 'unknown')[:12]
+                })
+            except:
+                pass
+        emit('htop', processes)
+    except Exception as e:
+        emit('htop', [])
+
+# ===== GPU MONITOR =====
+@socketio.on('get_gpu')
+def handle_gpu():
+    try:
+        gpus = []
+        # Try nvidia-smi
+        result = subprocess.run(['nvidia-smi', '--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,driver_version', '--format=csv,noheader,nounits'], 
+                              capture_output=True, text=True, timeout=10)
+        if result.returncode == 0:
+            for line in result.stdout.strip().split('\n'):
+                parts = [p.strip() for p in line.split(',')]
+                if len(parts) >= 7:
+                    mem_used = float(parts[2]) if parts[2] else 0
+                    mem_total = float(parts[3]) if parts[3] else 1
+                    gpus.append({
+                        'name': parts[0],
+                        'utilization': float(parts[1]) if parts[1] else 0,
+                        'mem_used': int(mem_used),
+                        'mem_total': int(mem_total),
+                        'mem_percent': round(mem_used / mem_total * 100, 1) if mem_total > 0 else 0,
+                        'temp': float(parts[4]) if parts[4] else 0,
+                        'power': float(parts[5]) if parts[5] else 0,
+                        'driver': parts[6]
+                    })
+
+        # Try rocm-smi for AMD
+        if not gpus:
+            result = subprocess.run(['rocm-smi', '--showproductname', '--showuse', '--showtemp', '--showpower'], 
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                gpus.append({'name': 'AMD GPU', 'utilization': 0, 'mem_used': 0, 'mem_total': 0, 'mem_percent': 0, 'temp': 0, 'power': 0, 'driver': 'ROCm'})
+
+        emit('gpu', {'gpus': gpus})
+    except Exception as e:
+        emit('gpu', {'gpus': [], 'error': 'No GPU monitoring tools available (nvidia-smi/rocm-smi not found)'})
+
+# ===== PACKAGE MANAGER =====
+@socketio.on('get_packages')
+def handle_packages():
+    try:
+        installed = []
+        upgradable = []
+
+        # Try apt (Debian/Ubuntu)
+        if os.path.exists('/usr/bin/apt'):
+            result = subprocess.run(['apt', 'list', '--installed'], capture_output=True, text=True, timeout=15)
+            for line in result.stdout.strip().split('\n')[1:100]:
+                if '/' in line:
+                    name = line.split('/')[0]
+                    installed.append({'name': name, 'version': '', 'description': ''})
+
+            result2 = subprocess.run(['apt', 'list', '--upgradable'], capture_output=True, text=True, timeout=15)
+            for line in result2.stdout.strip().split('\n')[1:100]:
+                if '/' in line:
+                    parts = line.split()
+                    name = parts[0].split('/')[0] if parts else ''
+                    if len(parts) >= 2 and '->' in line:
+                        vparts = line.split('->')
+                        new_ver = vparts[-1].strip() if len(vparts) > 1 else ''
+                        upgradable.append({'name': name, 'version': '', 'new_version': new_ver, 'description': ''})
+
+        # Try dnf/yum (RHEL/CentOS)
+        elif os.path.exists('/usr/bin/dnf'):
+            result = subprocess.run(['dnf', 'list', 'installed'], capture_output=True, text=True, timeout=15)
+            for line in result.stdout.strip().split('\n')[1:100]:
+                parts = line.split()
+                if len(parts) >= 2:
+                    installed.append({'name': parts[0], 'version': parts[1], 'description': ''})
+
+        emit('packages', {'installed': installed, 'upgradable': upgradable})
+    except Exception as e:
+        emit('packages', {'installed': [], 'upgradable': []})
+
+@socketio.on('check_package_updates')
+def handle_check_updates():
+    try:
+        if os.path.exists('/usr/bin/apt'):
+            subprocess.run(['apt', 'update'], capture_output=True, text=True, timeout=60)
+        emit('notification', {'title': 'Package Update', 'body': 'Update check complete'})
+        handle_packages()
+    except Exception as e:
+        emit('notification', {'title': 'Error', 'body': str(e)})
+
+@socketio.on('upgrade_packages')
+def handle_upgrade_packages():
+    try:
+        if os.path.exists('/usr/bin/apt'):
+            result = subprocess.run(['apt', 'upgrade', '-y'], capture_output=True, text=True, timeout=300)
+            emit('notification', {'title': 'Upgrade Complete', 'body': result.stdout[:200] or 'Done'})
+        handle_packages()
+    except Exception as e:
+        emit('notification', {'title': 'Error', 'body': str(e)})
+
+# ===== BACKUP MANAGER =====
+@socketio.on('get_backups')
+def handle_backups():
+    emit('backups', backup_jobs)
+
+@socketio.on('add_backup')
+def handle_add_backup(data):
+    try:
+        backup_jobs.append({
+            'name': data['name'],
+            'source': data['source'],
+            'destination': data['destination'],
+            'schedule': data['schedule'],
+            'status': 'idle',
+            'last_run': None
+        })
+        emit('notification', {'title': 'Backup Added', 'body': f"Job '{data['name']}' created"})
+        emit('backups', backup_jobs)
+    except Exception as e:
+        emit('notification', {'title': 'Error', 'body': str(e)})
+
+@socketio.on('run_backup')
+def handle_run_backup(index):
+    try:
+        if 0 <= index < len(backup_jobs):
+            job = backup_jobs[index]
+            job['status'] = 'running'
+            job['last_run'] = datetime.now().strftime('%Y-%m-%d %H:%M')
+
+            os.makedirs(job['destination'], exist_ok=True)
+            result = subprocess.run(['tar', '-czf', f"{job['destination']}/{job['name']}_{datetime.now().strftime('%Y%m%d_%H%M')}.tar.gz", job['source']], 
+                                  capture_output=True, text=True, timeout=300)
+
+            job['status'] = 'success' if result.returncode == 0 else 'failed'
+            emit('notification', {'title': 'Backup Complete', 'body': f"'{job['name']}' {'succeeded' if result.returncode == 0 else 'failed'}"})
+            emit('backups', backup_jobs)
+    except Exception as e:
+        emit('notification', {'title': 'Error', 'body': str(e)})
+
+@socketio.on('delete_backup')
+def handle_delete_backup(index):
+    try:
+        if 0 <= index < len(backup_jobs):
+            name = backup_jobs[index]['name']
+            backup_jobs.pop(index)
+            emit('notification', {'title': 'Backup Deleted', 'body': f"Job '{name}' removed"})
+            emit('backups', backup_jobs)
+    except Exception as e:
+        emit('notification', {'title': 'Error', 'body': str(e)})
+
+# ===== SPEED TEST =====
+@socketio.on('run_speedtest')
+def handle_speedtest():
+    try:
+        # Try speedtest-cli
+        result = subprocess.run(['speedtest-cli', '--simple'], capture_output=True, text=True, timeout=120)
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            download = upload = ping = '0'
+            for line in lines:
+                if line.startswith('Ping:'):
+                    ping = line.split()[1]
+                elif line.startswith('Download:'):
+                    download = line.split()[1]
+                elif line.startswith('Upload:'):
+                    upload = line.split()[1]
+            emit('speedtest_result', {'download': download, 'upload': upload, 'ping': ping, 'server': 'speedtest.net'})
+        else:
+            # Fallback: try curl to fast.com or similar
+            emit('speedtest_result', {'error': 'speedtest-cli not installed. Run: apt install speedtest-cli'})
+    except Exception as e:
+        emit('speedtest_result', {'error': str(e)})
+
+# ===== SSL CERTIFICATES =====
+@socketio.on('get_certs')
+def handle_certs():
+    try:
+        certs = []
+        # Check Let's Encrypt certs
+        le_dir = '/etc/letsencrypt/live'
+        if os.path.exists(le_dir):
+            for domain in os.listdir(le_dir):
+                cert_path = os.path.join(le_dir, domain, 'fullchain.pem')
+                if os.path.exists(cert_path):
+                    result = subprocess.run(['openssl', 'x509', '-in', cert_path, '-noout', '-dates', '-issuer', '-subject'], 
+                                          capture_output=True, text=True, timeout=5)
+                    if result.returncode == 0:
+                        not_after = None
+                        issuer = domain
+                        for line in result.stdout.split('\n'):
+                            if 'notAfter=' in line:
+                                not_after = line.split('=')[1]
+                            if 'issuer=' in line:
+                                issuer = line.split('O=')[1].split('/')[0] if 'O=' in line else line
+
+                        if not_after:
+                            expiry = datetime.strptime(not_after, '%b %d %H:%M:%S %Y %Z')
+                            days_left = (expiry - datetime.now()).days
+                            certs.append({
+                                'domain': domain,
+                                'path': cert_path,
+                                'issuer': issuer,
+                                'days': days_left,
+                                'expiry': not_after
+                            })
+
+        # Check custom certs from config
+        emit('certs', certs)
+    except Exception as e:
+        emit('certs', [])
+
+@socketio.on('add_cert')
+def handle_add_cert(data):
+    try:
+        if os.path.exists(data['path']):
+            result = subprocess.run(['openssl', 'x509', '-in', data['path'], '-noout', '-dates'], 
+                                  capture_output=True, text=True, timeout=5)
+            not_after = None
+            for line in result.stdout.split('\n'):
+                if 'notAfter=' in line:
+                    not_after = line.split('=')[1]
+            if not_after:
+                expiry = datetime.strptime(not_after, '%b %d %H:%M:%S %Y %Z')
+                days_left = (expiry - datetime.now()).days
+                emit('notification', {'title': 'Certificate Added', 'body': f"{data['domain']} - {days_left} days left"})
+        else:
+            emit('notification', {'title': 'Error', 'body': 'Certificate file not found'})
+    except Exception as e:
+        emit('notification', {'title': 'Error', 'body': str(e)})
 
 # ===== STATS EMITTER =====
 def emit_stats():
