@@ -1,4 +1,4 @@
-thon3
+#!/usr/bin/env python3
 import gevent.monkey
 gevent.monkey.patch_all()
 
@@ -1513,4 +1513,3 @@ gevent.spawn(emit_stats)
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=False)
-
